@@ -124,7 +124,9 @@ const OpenRooms: React.FC = () => {
                             >
                                 <option className="bg-indigo-900 text-white" value="">All Floors</option>
                                 {buildings.map(b => (
-                                    <option className="bg-indigo-900 text-white" key={b} value={b}>{b === 'UB' ? 'Main/TBA' : `Floor ${b}`}</option>
+                                    <option className="bg-indigo-900 text-white" key={b} value={b}>
+                                        {b === 'UB' ? 'Main / TBA' : `Floor ${b}`}
+                                    </option>
                                 ))}
                             </select>
                         </div>
