@@ -100,14 +100,14 @@ export class BracuService implements OnModuleInit {
   async processTrackedReminders() {
     try {
       this.logger.log('Cron Trigger: Checking for periodic seat reminders...');
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000); // Changed from 5 to 2 minutes
 
       const tracksToNotify = await (this.prisma.tracking as any).findMany({
         where: {
           active: true,
           OR: [
             { lastNotifiedAt: null },
-            { lastNotifiedAt: { lt: fiveMinutesAgo } },
+            { lastNotifiedAt: { lt: twoMinutesAgo } }, // Updated variable name
           ],
         },
         include: {
