@@ -7,13 +7,14 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
 
   constructor() {
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: false, // true for 465, false for other ports
+      port,
+      secure: port === 465, // true for 465, false for other ports
       auth: {
-        user: process.env.SMTP_USER, // Brevo login (usually email)
-        pass: process.env.SMTP_PASS, // Brevo SMTP Key
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
     });
   }
