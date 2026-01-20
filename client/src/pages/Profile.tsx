@@ -15,7 +15,6 @@ export default function Profile() {
     const [passwordLoading, setPasswordLoading] = useState(false);
 
     // Profile Picture State
-    const [profilePicture, setProfilePicture] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadMessage, setUploadMessage] = useState('');
     const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -51,8 +50,6 @@ export default function Profile() {
             console.log('[Profile] Calling updateProfilePicture API...');
             const response = await authService.updateProfilePicture(previewImage);
             console.log('[Profile] API Response:', response);
-
-            setProfilePicture(previewImage);
 
             console.log('[Profile] Refreshing user data...');
             await refreshUser();
