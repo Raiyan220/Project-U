@@ -52,7 +52,10 @@ export class TrackingService {
 
       // If seats are already available, send email immediately
       const available = Math.max(0, section.capacity - section.enrolled);
+      this.logger.log(`[TRACK] User ${tracking.user.email} tracking ${section.course.code} Sec ${section.sectionNumber} - Available: ${available}`);
+
       if (available > 0 && tracking.user.email) {
+        this.logger.log(`[EMAIL] Attempting to send immediate notification to ${tracking.user.email}`);
         // Send email asynchronously
         this.mailService
           .sendSeatAvailableEmail(
@@ -62,83 +65,90 @@ export class TrackingService {
             available,
           )
           .then(() => {
+            this.logger.log(`[EMAIL] ✅ Successfully sent to ${tracking.user.email}`);
             this.updateLastNotified(tracking.id);
           })
-          .catch(() => { });
+          .catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.logger.error(`[EMAIL] ❌ Failed to send to ${tracking.user.email}: ${msg}`);
+          });
+      } else {
+        this.logger.log(`[EMAIL] Skipped - No seats available or no user email`);
       }
+    }
 
       return tracking;
-    } catch (error) {
-      if (error.code === 'P2002') {
-        throw new ConflictException('Already tracking this section');
-      }
-      throw error;
+  } catch(error) {
+    if (error.code === 'P2002') {
+      throw new ConflictException('Already tracking this section');
     }
+    throw error;
   }
+}
 
   async untrackSection(userId: string, sectionId: string) {
-    return this.prisma.tracking
-      .delete({
-        where: {
-          userId_sectionId: {
-            userId,
-            sectionId,
-          },
+  return this.prisma.tracking
+    .delete({
+      where: {
+        userId_sectionId: {
+          userId,
+          sectionId,
         },
-      })
-      .catch(() => {
-        throw new NotFoundException('Tracking not found');
-      });
-  }
+      },
+    })
+    .catch(() => {
+      throw new NotFoundException('Tracking not found');
+    });
+}
 
   async getUserTracks(userId: string) {
-    return this.prisma.tracking.findMany({
-      where: {
-        userId,
-        active: true,
-      },
-      include: {
-        section: {
-          include: {
-            course: true,
-            slots: true,
-          },
+  return this.prisma.tracking.findMany({
+    where: {
+      userId,
+      active: true,
+    },
+    include: {
+      section: {
+        include: {
+          course: true,
+          slots: true,
         },
       },
-    });
-  }
+    },
+  });
+}
 
   async getTrackersForSection(sectionId: string) {
-    return this.prisma.tracking.findMany({
-      where: {
-        sectionId,
-        active: true,
-      },
-      include: {
-        user: {
-          select: {
-            email: true,
-          },
+  return this.prisma.tracking.findMany({
+    where: {
+      sectionId,
+      active: true,
+    },
+    include: {
+      user: {
+        select: {
+          email: true,
         },
       },
-    });
-  }
+    },
+  });
+}
 
   async updateLastNotified(trackingId: string) {
-    // Check if record exists before updating to prevent "Record not found" errors
-    const exists = await this.prisma.tracking.findUnique({
-      where: { id: trackingId },
-      select: { id: true },
-    });
+  // Check if record exists before updating to prevent "Record not found" errors
+  const exists = await this.prisma.tracking.findUnique({
+    where: { id: trackingId },
+    select: { id: true },
+  });
 
-    if (!exists) {
-      // Record was deleted, skip update silently
-      return null;
-    }
-
-    return this.prisma.tracking.update({
-      where: { id: trackingId },
-      data: { lastNotifiedAt: new Date() },
-    });
+  if (!exists) {
+    // Record was deleted, skip update silently
+    return null;
   }
+
+  return this.prisma.tracking.update({
+    where: { id: trackingId },
+    data: { lastNotifiedAt: new Date() },
+  });
+}
 }
