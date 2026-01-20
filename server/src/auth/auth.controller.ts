@@ -76,7 +76,8 @@ export class AuthController {
       req.user as GoogleUser,
     );
     // Redirect to frontend with token
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${access_token}`);
+    const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://project-u.vercel.app';
+    res.redirect(`${frontendUrl}/dashboard?token=${access_token}`);
   }
 
   @Post('change-password')
