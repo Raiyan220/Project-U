@@ -75,80 +75,79 @@ export class TrackingService {
       } else {
         this.logger.log(`[EMAIL] Skipped - No seats available or no user email`);
       }
-    }
 
       return tracking;
-  } catch(error) {
-    if (error.code === 'P2002') {
-      throw new ConflictException('Already tracking this section');
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Already tracking this section');
+      }
+      throw error;
     }
-    throw error;
   }
-}
 
   async untrackSection(userId: string, sectionId: string) {
-  return this.prisma.tracking
-    .delete({
-      where: {
-        userId_sectionId: {
-          userId,
-          sectionId,
+    return this.prisma.tracking
+      .delete({
+        where: {
+          userId_sectionId: {
+            userId,
+            sectionId,
+          },
         },
-      },
-    })
-    .catch(() => {
-      throw new NotFoundException('Tracking not found');
-    });
-}
-
-  async getUserTracks(userId: string) {
-  return this.prisma.tracking.findMany({
-    where: {
-      userId,
-      active: true,
-    },
-    include: {
-      section: {
-        include: {
-          course: true,
-          slots: true,
-        },
-      },
-    },
-  });
-}
-
-  async getTrackersForSection(sectionId: string) {
-  return this.prisma.tracking.findMany({
-    where: {
-      sectionId,
-      active: true,
-    },
-    include: {
-      user: {
-        select: {
-          email: true,
-        },
-      },
-    },
-  });
-}
-
-  async updateLastNotified(trackingId: string) {
-  // Check if record exists before updating to prevent "Record not found" errors
-  const exists = await this.prisma.tracking.findUnique({
-    where: { id: trackingId },
-    select: { id: true },
-  });
-
-  if (!exists) {
-    // Record was deleted, skip update silently
-    return null;
+      })
+      .catch(() => {
+        throw new NotFoundException('Tracking not found');
+      });
   }
 
-  return this.prisma.tracking.update({
-    where: { id: trackingId },
-    data: { lastNotifiedAt: new Date() },
-  });
-}
+  async getUserTracks(userId: string) {
+    return this.prisma.tracking.findMany({
+      where: {
+        userId,
+        active: true,
+      },
+      include: {
+        section: {
+          include: {
+            course: true,
+            slots: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getTrackersForSection(sectionId: string) {
+    return this.prisma.tracking.findMany({
+      where: {
+        sectionId,
+        active: true,
+      },
+      include: {
+        user: {
+          select: {
+            email: true,
+          },
+        },
+      },
+    });
+  }
+
+  async updateLastNotified(trackingId: string) {
+    // Check if record exists before updating to prevent "Record not found" errors
+    const exists = await this.prisma.tracking.findUnique({
+      where: { id: trackingId },
+      select: { id: true },
+    });
+
+    if (!exists) {
+      // Record was deleted, skip update silently
+      return null;
+    }
+
+    return this.prisma.tracking.update({
+      where: { id: trackingId },
+      data: { lastNotifiedAt: new Date() },
+    });
+  }
 }
