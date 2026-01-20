@@ -18,4 +18,14 @@ export class AppController {
   async testEmail() {
     return this.mailService.verifyConnection();
   }
+
+  @Get('health')
+  getHealth() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      message: 'UniFlow server is running'
+    };
+  }
 }

@@ -407,10 +407,49 @@ export default function Dashboard() {
 }
 
 function MyTrackedCourses() {
+    const queryClient = useQueryClient();
+    const [untrackingId, setUntrackingId] = useState<string | null>(null);
+    const [updatingIntervalId, setUpdatingIntervalId] = useState<string | null>(null);
+
     const { data: tracks, isLoading } = useQuery({
         queryKey: ['myTracks'],
         queryFn: () => courseService.getMyTracks(),
     });
+
+    const handleUntrack = async (sectionId: string) => {
+        setUntrackingId(sectionId);
+        try {
+            await courseService.untrackSection(sectionId);
+            queryClient.invalidateQueries({ queryKey: ['myTracks'] });
+        } catch (error) {
+            console.error('Failed to untrack section:', error);
+        } finally {
+            setUntrackingId(null);
+        }
+    };
+
+    const handleIntervalChange = async (sectionId: string, intervalMinutes: number) => {
+        setUpdatingIntervalId(sectionId);
+        try {
+            await courseService.updateNotifyInterval(sectionId, intervalMinutes);
+            queryClient.invalidateQueries({ queryKey: ['myTracks'] });
+        } catch (error) {
+            console.error('Failed to update interval:', error);
+        } finally {
+            setUpdatingIntervalId(null);
+        }
+    };
+
+    const intervalOptions = [
+        { value: 1, label: '1 min' },
+        { value: 2, label: '2 min' },
+        { value: 3, label: '3 min' },
+        { value: 5, label: '5 min' },
+        { value: 10, label: '10 min' },
+        { value: 15, label: '15 min' },
+        { value: 30, label: '30 min' },
+        { value: 60, label: '1 hour' },
+    ];
 
     if (isLoading) return null;
     if (!tracks || tracks.length === 0) return null;
@@ -443,7 +482,7 @@ function MyTrackedCourses() {
                                     Section {track.section.sectionNumber}
                                 </span>
                             </div>
-                            <div className="flex items-center justify-between mt-6">
+                            <div className="flex items-center justify-between mt-4">
                                 <div className="flex flex-col">
                                     <span className={`text-xl font-bold ${track.section.enrolled >= track.section.capacity ? 'text-red-400' : 'text-green-400'}`}>
                                         {track.section.capacity - track.section.enrolled}
@@ -456,6 +495,54 @@ function MyTrackedCourses() {
                                     </span>
                                 </div>
                             </div>
+
+                            {/* Email Interval Selector */}
+                            <div className="mt-4 p-3 bg-white/5 rounded-lg border border-white/10">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                        </svg>
+                                        <span className="text-xs text-gray-400">Email every</span>
+                                    </div>
+                                    <select
+                                        value={track.notifyIntervalMinutes || 5}
+                                        onChange={(e) => handleIntervalChange(track.section.id, parseInt(e.target.value))}
+                                        disabled={updatingIntervalId === track.section.id}
+                                        className="bg-white/10 border border-white/20 rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 cursor-pointer"
+                                    >
+                                        {intervalOptions.map((opt) => (
+                                            <option key={opt.value} value={opt.value} className="bg-gray-800">
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Stop Tracking Button */}
+                            <button
+                                onClick={() => handleUntrack(track.section.id)}
+                                disabled={untrackingId === track.section.id}
+                                className="w-full mt-4 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {untrackingId === track.section.id ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Stopping...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                        </svg>
+                                        Stop Tracking
+                                    </>
+                                )}
+                            </button>
                         </div>
                     );
                 })}
@@ -463,4 +550,5 @@ function MyTrackedCourses() {
         </motion.div>
     );
 }
+
 

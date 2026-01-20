@@ -153,4 +153,29 @@ export class TrackingService {
       data: { lastNotifiedAt: new Date() },
     });
   }
+
+  async updateNotifyInterval(userId: string, sectionId: string, intervalMinutes: number) {
+    // Validate interval (allowed values: 1, 2, 3, 5, 10, 15, 30, 60)
+    const allowedIntervals = [1, 2, 3, 5, 10, 15, 30, 60];
+    if (!allowedIntervals.includes(intervalMinutes)) {
+      throw new Error(`Invalid interval. Allowed values: ${allowedIntervals.join(', ')}`);
+    }
+
+    return this.prisma.tracking.update({
+      where: {
+        userId_sectionId: {
+          userId,
+          sectionId,
+        },
+      },
+      data: { notifyIntervalMinutes: intervalMinutes },
+      include: {
+        section: {
+          include: {
+            course: true,
+          },
+        },
+      },
+    });
+  }
 }

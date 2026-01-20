@@ -100,15 +100,11 @@ export class BracuService implements OnModuleInit {
   async processTrackedReminders() {
     try {
       this.logger.log('Cron Trigger: Checking for periodic seat reminders...');
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000); // Changed from 5 to 2 minutes
 
-      const tracksToNotify = await (this.prisma.tracking as any).findMany({
+      // Get all active tracks with their custom intervals
+      const tracksToCheck = await (this.prisma.tracking as any).findMany({
         where: {
           active: true,
-          OR: [
-            { lastNotifiedAt: null },
-            { lastNotifiedAt: { lt: twoMinutesAgo } }, // Updated variable name
-          ],
         },
         include: {
           user: true,
@@ -120,19 +116,35 @@ export class BracuService implements OnModuleInit {
         },
       });
 
-      if (tracksToNotify.length === 0) {
-        this.logger.log('Cron: No sections need reminder notifications right now.');
+      if (tracksToCheck.length === 0) {
+        this.logger.log('Cron: No active tracks found.');
         return;
       }
 
-      this.logger.log(`Cron: Found ${tracksToNotify.length} tracks to check for availability.`);
+      this.logger.log(`Cron: Found ${tracksToCheck.length} active tracks to check.`);
 
-      for (const track of tracksToNotify as any[]) {
+      const now = Date.now();
+      let notifiedCount = 0;
+
+      for (const track of tracksToCheck as any[]) {
+        // Use user's custom interval (default: 5 minutes)
+        const intervalMinutes = track.notifyIntervalMinutes || 5;
+        const intervalMs = intervalMinutes * 60 * 1000;
+        const intervalAgo = new Date(now - intervalMs);
+
+        // Check if enough time has passed since last notification
+        const shouldNotify = !track.lastNotifiedAt || new Date(track.lastNotifiedAt) < intervalAgo;
+
+        if (!shouldNotify) {
+          continue; // Skip - still in cooldown period
+        }
+
         const available = Math.max(0, track.section.capacity - track.section.enrolled);
-        this.logger.log(`Cron: Checking ${track.section.course.code} Sec ${track.section.sectionNumber} - Available: ${available}`);
 
         if (available > 0 && track.user.email) {
-          this.logger.log(`Cron: Sending recurring reminder to ${track.user.email} for ${track.section.course.code}`);
+          this.logger.log(`Cron: Sending reminder to ${track.user.email} for ${track.section.course.code} (interval: ${intervalMinutes}min)`);
+          notifiedCount++;
+
           void this.mailService.sendSeatAvailableEmail(
             track.user.email,
             track.section.course.code,
@@ -148,6 +160,8 @@ export class BracuService implements OnModuleInit {
           });
         }
       }
+
+      this.logger.log(`Cron: Sent ${notifiedCount} reminder notifications.`);
     } catch (error) {
       this.logger.error(`Cron: Error in processTrackedReminders: ${error.message}`);
     }

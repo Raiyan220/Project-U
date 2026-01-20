@@ -40,4 +40,11 @@ export const courseService = {
         const response = await api.get<any[]>('/courses/tracking/my');
         return response.data;
     },
+
+    async updateNotifyInterval(sectionId: string, intervalMinutes: number) {
+        const response = await api.patch(`/courses/track/${sectionId}/interval`, {
+            intervalMinutes,
+        });
+        return response.data;
+    },
 };

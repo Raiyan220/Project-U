@@ -70,14 +70,15 @@ model RoomSlot {
 }
 
 model Tracking {
-  id              String   @id @default(uuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  sectionId       String
-  section         Section  @relation(fields: [sectionId], references: [id])
-  active          Boolean  @default(true)
-  lastNotifiedAt  DateTime?
-  createdAt       DateTime @default(now())
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  sectionId             String
+  section               Section  @relation(fields: [sectionId], references: [id])
+  active                Boolean  @default(true)
+  lastNotifiedAt        DateTime?
+  notifyIntervalMinutes Int      @default(5) // User-customizable email interval (1, 2, 3, 5, 10, 15, 30, 60)
+  createdAt             DateTime @default(now())
 
   @@unique([userId, sectionId])
 }
