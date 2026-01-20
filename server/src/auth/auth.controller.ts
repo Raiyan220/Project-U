@@ -76,7 +76,7 @@ export class AuthController {
       req.user as GoogleUser,
     );
     // Redirect to frontend with token
-    const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://project-u.vercel.app';
+    const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://uniflowbd.vercel.app';
     res.redirect(`${frontendUrl}/dashboard?token=${access_token}`);
   }
 

@@ -37,7 +37,7 @@ export function useRealtimeSeats(options: UseRealtimeSeatsOptions = {}) {
     const connect = useCallback(() => {
         if (socketRef.current?.connected) return;
 
-        const serverUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const serverUrl = import.meta.env.VITE_API_URL || 'https://uniflow-backend-o9z8.onrender.com';
 
         socketRef.current = io(`${serverUrl}/courses`, {
             transports: ['websocket', 'polling'],
