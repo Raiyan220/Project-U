@@ -11,12 +11,21 @@ export class MailService {
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
       port,
-      secure: port === 465, // true for 465, false for other ports
+      secure: port === 465, // true for 465 (SSL), false for 587 (STARTTLS)
+      requireTLS: port === 587, // Require STARTTLS for port 587
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      tls: {
+        ciphers: 'SSLv3', // For better compatibility
+        rejectUnauthorized: process.env.NODE_ENV === 'production', // Strict in production
+      },
+      connectionTimeout: 15000, // 15 second connection timeout
+      greetingTimeout: 10000, // 10 second greeting timeout
     });
+
+    this.logger.log(`Mail service initialized: ${process.env.SMTP_HOST || 'smtp-relay.brevo.com'}:${port} (secure: ${port === 465})`);
   }
 
 

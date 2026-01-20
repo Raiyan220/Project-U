@@ -125,6 +125,17 @@ export class TrackingService {
   }
 
   async updateLastNotified(trackingId: string) {
+    // Check if record exists before updating to prevent "Record not found" errors
+    const exists = await this.prisma.tracking.findUnique({
+      where: { id: trackingId },
+      select: { id: true },
+    });
+
+    if (!exists) {
+      // Record was deleted, skip update silently
+      return null;
+    }
+
     return this.prisma.tracking.update({
       where: { id: trackingId },
       data: { lastNotifiedAt: new Date() },
