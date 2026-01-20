@@ -18,6 +18,24 @@ export class MailService {
     });
   }
 
+  async verifyConnection() {
+    try {
+      await this.transporter.verify();
+      return { success: true, message: 'SMTP Connection established successfully' };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'SMTP Connection failed',
+        error: error instanceof Error ? error.message : String(error),
+        config: {
+          host: (this.transporter.options as any).host,
+          port: (this.transporter.options as any).port,
+          user: (this.transporter.options as any).auth?.user ? 'Has Value' : 'MISSING',
+        }
+      };
+    }
+  }
+
   async sendSeatAvailableEmail(
     to: string,
     courseCode: string,
