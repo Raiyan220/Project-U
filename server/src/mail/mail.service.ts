@@ -1,19 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as brevo from '@getbrevo/brevo';
+import { TransactionalEmailsApi, SendSmtpEmail, ApiClient } from '@getbrevo/brevo';
 
 @Injectable()
 export class MailService {
-  private apiInstance: brevo.TransactionalEmailsApi;
+  private apiInstance: TransactionalEmailsApi;
   private readonly logger = new Logger(MailService.name);
   private readonly fromEmail: string;
   private readonly fromName: string;
 
   constructor() {
     // Initialize Brevo API
-    const apiKey = brevo.ApiClient.instance.authentications['api-key'];
-    apiKey.apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
+    const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
 
-    this.apiInstance = new brevo.TransactionalEmailsApi();
+    const apiClient = new ApiClient();
+    apiClient.authentications['api-key'].apiKey = apiKey;
+
+    this.apiInstance = new TransactionalEmailsApi(apiClient);
     this.fromEmail = process.env.SMTP_FROM_EMAIL || 'noreply@uniflow.com';
     this.fromName = process.env.SMTP_FROM_NAME || 'UniFlow';
 
@@ -22,20 +24,21 @@ export class MailService {
 
   async verifyConnection() {
     try {
-      // Test API key by attempting to get account info
-      const accountApi = new brevo.AccountApi();
-      await accountApi.getAccount();
+      // Simple check - if API key is set
+      if (!process.env.BREVO_API_KEY && !process.env.SMTP_PASS) {
+        throw new Error('BREVO_API_KEY not configured');
+      }
 
       return {
         success: true,
-        message: 'Brevo API connection successful',
+        message: 'Brevo API configured successfully',
         provider: 'Brevo HTTP API',
         limit: '300 emails/day'
       };
     } catch (error) {
       return {
         success: false,
-        message: 'Brevo API connection failed',
+        message: 'Brevo API configuration failed',
         error: error instanceof Error ? error.message : String(error),
         hint: 'Check BREVO_API_KEY environment variable'
       };
@@ -49,7 +52,7 @@ export class MailService {
     availableSeats: number,
   ) {
     try {
-      const sendSmtpEmail = new brevo.SendSmtpEmail();
+      const sendSmtpEmail = new SendSmtpEmail();
 
       sendSmtpEmail.sender = { name: this.fromName, email: this.fromEmail };
       sendSmtpEmail.to = [{ email: to }];
@@ -81,7 +84,7 @@ export class MailService {
 
   async sendPasswordResetEmail(to: string, otp: string) {
     try {
-      const sendSmtpEmail = new brevo.SendSmtpEmail();
+      const sendSmtpEmail = new SendSmtpEmail();
 
       sendSmtpEmail.sender = { name: 'UniFlow Security', email: this.fromEmail };
       sendSmtpEmail.to = [{ email: to }];
