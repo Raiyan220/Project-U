@@ -11,7 +11,7 @@ export class MailService {
 
   constructor() {
     this.apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
-    this.fromEmail = process.env.SMTP_FROM_EMAIL || 'noreply@uniflow.com';
+    this.fromEmail = process.env.SMTP_FROM_EMAIL || 'alraiyanxyz@gmail.com'; // Your verified Brevo sender
     this.fromName = process.env.SMTP_FROM_NAME || 'UniFlow';
 
     this.logger.log(`Mail service initialized with Brevo HTTP API (300 emails/day limit)`);
