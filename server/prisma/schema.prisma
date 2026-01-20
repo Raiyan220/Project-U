@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String?    // Optional for OAuth users
+  name      String?
+  role      Role       @default(STUDENT)
+  provider  String     @default("email") // "email" or "google"
+  googleId  String?    @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  resetOtp  String?
+  resetOtpExpires DateTime?
+  profilePicture String?
+  tracks    Tracking[]
+}
+
+model Course {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  title       String
+  department  String?
+  sections    Section[]
+}
+
+model Section {
+  id            String     @id @default(uuid())
+  courseId      String
+  course        Course     @relation(fields: [courseId], references: [id])
+  sectionNumber String
+  capacity      Int
+  enrolled      Int
+  status        String     @default("OPEN")
+  facultyInitials String?
+  examDate      String?
+  labFacultyInitials String?
+  labExamDate      String?
+  prerequisites    String?
+  lastUpdated   DateTime   @default(now())
+  trackers      Tracking[]
+  slots         RoomSlot[]
+}
+
+model RoomSlot {
+  id         String   @id @default(uuid())
+  day        String
+  startTime  Int
+  endTime    Int
+  roomNumber String
+  building   String
+  type       String   @default("CLASS") // "CLASS" or "LAB"
+  sectionId  String?
+  section    Section? @relation(fields: [sectionId], references: [id])
+
+  @@index([day, startTime, endTime])
+}
+
+model Tracking {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  sectionId       String
+  section         Section  @relation(fields: [sectionId], references: [id])
+  active          Boolean  @default(true)
+  lastNotifiedAt  DateTime?
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, sectionId])
+}
+
+model CourseStats {
+  id                    Int      @id @default(1)
+  totalCourses          Int      @default(0)
+  totalSections         Int      @default(0)
+  totalAvailableSeats   Int      @default(0)
+  lastUpdated           DateTime @default(now())
+}

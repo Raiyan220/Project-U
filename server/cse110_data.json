@@ -1,0 +1,287 @@
+[
+  {
+    "sectionId": 182939,
+    "courseId": 1510,
+    "sectionName": "07",
+    "courseCredit": 3,
+    "courseCode": "CSE110",
+    "sectionType": "THEORY",
+    "capacity": 20,
+    "consumedSeat": 7,
+    "semesterSessionId": 20261,
+    "parentSectionId": null,
+    "faculties": "RAK",
+    "roomName": "10A-05C",
+    "roomNumber": "10A-05C",
+    "academicDegree": "UNDERGRADUATE",
+    "sectionSchedule": {
+      "classPairId": null,
+      "classSlotId": null,
+      "finalExamDate": "2026-05-14",
+      "finalExamStartTime": "08:30:00",
+      "finalExamEndTime": "10:30:00",
+      "midExamDate": "2026-03-31",
+      "midExamStartTime": "08:30:00",
+      "midExamEndTime": "10:30:00",
+      "finalExamDetail": "May 14, 2026 8:30 AM - 10:30 AM",
+      "midExamDetail": "Mar 31, 2026 8:30 AM - 10:30 AM",
+      "classStartDate": "2026-01-31",
+      "classEndDate": "2026-05-10",
+      "classSchedules": [
+        {
+          "startTime": "08:00:00",
+          "endTime": "09:20:00",
+          "day": "SUNDAY"
+        },
+        {
+          "startTime": "08:00:00",
+          "endTime": "09:20:00",
+          "day": "TUESDAY"
+        }
+      ]
+    },
+    "labSchedules": [
+      {
+        "startTime": "11:00:00",
+        "endTime": "13:50:00",
+        "day": "THURSDAY"
+      }
+    ],
+    "labSectionId": 182940,
+    "labCourseCode": "CSE110L",
+    "labFaculties": "TBA",
+    "labName": "PROGRAMMING LANGUAGE I LAB",
+    "labRoomName": "09B-09L",
+    "prerequisiteCourses": "N/A",
+    "preRegLabSchedule": "THURSDAY(11:00 AM-1:50 PM-09B-09L)",
+    "preRegSchedule": "SUNDAY(8:00 AM-9:20 AM-10A-05C)\nTUESDAY(8:00 AM-9:20 AM-10A-05C)"
+  },
+  {
+    "sectionId": 182931,
+    "courseId": 1510,
+    "sectionName": "03",
+    "courseCredit": 3,
+    "courseCode": "CSE110",
+    "sectionType": "THEORY",
+    "capacity": 20,
+    "consumedSeat": 20,
+    "semesterSessionId": 20261,
+    "parentSectionId": null,
+    "faculties": "MSI",
+    "roomName": "10A-10C",
+    "roomNumber": "10A-10C",
+    "academicDegree": "UNDERGRADUATE",
+    "sectionSchedule": {
+      "classPairId": null,
+      "classSlotId": null,
+      "finalExamDate": "2026-05-14",
+      "finalExamStartTime": "08:30:00",
+      "finalExamEndTime": "10:30:00",
+      "midExamDate": "2026-03-31",
+      "midExamStartTime": "08:30:00",
+      "midExamEndTime": "10:30:00",
+      "finalExamDetail": "May 14, 2026 8:30 AM - 10:30 AM",
+      "midExamDetail": "Mar 31, 2026 8:30 AM - 10:30 AM",
+      "classStartDate": "2026-01-31",
+      "classEndDate": "2026-05-10",
+      "classSchedules": [
+        {
+          "startTime": "12:30:00",
+          "endTime": "13:50:00",
+          "day": "SUNDAY"
+        },
+        {
+          "startTime": "12:30:00",
+          "endTime": "13:50:00",
+          "day": "TUESDAY"
+        }
+      ]
+    },
+    "labSchedules": [
+      {
+        "startTime": "11:00:00",
+        "endTime": "13:50:00",
+        "day": "WEDNESDAY"
+      }
+    ],
+    "labSectionId": 182932,
+    "labCourseCode": "CSE110L",
+    "labFaculties": "TBA",
+    "labName": "PROGRAMMING LANGUAGE I LAB",
+    "labRoomName": "09B-08L",
+    "prerequisiteCourses": "N/A",
+    "preRegLabSchedule": "WEDNESDAY(11:00 AM-1:50 PM-09B-08L)",
+    "preRegSchedule": "SUNDAY(12:30 PM-1:50 PM-10A-10C)\nTUESDAY(12:30 PM-1:50 PM-10A-10C)"
+  },
+  {
+    "sectionId": 182933,
+    "courseId": 1510,
+    "sectionName": "04",
+    "courseCredit": 3,
+    "courseCode": "CSE110",
+    "sectionType": "THEORY",
+    "capacity": 20,
+    "consumedSeat": 20,
+    "semesterSessionId": 20261,
+    "parentSectionId": null,
+    "faculties": "MSI",
+    "roomName": "10A-10C",
+    "roomNumber": "10A-10C",
+    "academicDegree": "UNDERGRADUATE",
+    "sectionSchedule": {
+      "classPairId": null,
+      "classSlotId": null,
+      "finalExamDate": "2026-05-14",
+      "finalExamStartTime": "08:30:00",
+      "finalExamEndTime": "10:30:00",
+      "midExamDate": "2026-03-31",
+      "midExamStartTime": "08:30:00",
+      "midExamEndTime": "10:30:00",
+      "finalExamDetail": "May 14, 2026 8:30 AM - 10:30 AM",
+      "midExamDetail": "Mar 31, 2026 8:30 AM - 10:30 AM",
+      "classStartDate": "2026-01-31",
+      "classEndDate": "2026-05-10",
+      "classSchedules": [
+        {
+          "startTime": "15:30:00",
+          "endTime": "16:50:00",
+          "day": "SUNDAY"
+        },
+        {
+          "startTime": "15:30:00",
+          "endTime": "16:50:00",
+          "day": "TUESDAY"
+        }
+      ]
+    },
+    "labSchedules": [
+      {
+        "startTime": "11:00:00",
+        "endTime": "13:50:00",
+        "day": "WEDNESDAY"
+      }
+    ],
+    "labSectionId": 182934,
+    "labCourseCode": "CSE110L",
+    "labFaculties": "TBA",
+    "labName": "PROGRAMMING LANGUAGE I LAB",
+    "labRoomName": "09B-10L",
+    "prerequisiteCourses": "N/A",
+    "preRegLabSchedule": "WEDNESDAY(11:00 AM-1:50 PM-09B-10L)",
+    "preRegSchedule": "SUNDAY(3:30 PM-4:50 PM-10A-10C)\nTUESDAY(3:30 PM-4:50 PM-10A-10C)"
+  },
+  {
+    "sectionId": 182945,
+    "courseId": 1510,
+    "sectionName": "10",
+    "courseCredit": 3,
+    "courseCode": "CSE110",
+    "sectionType": "THEORY",
+    "capacity": 20,
+    "consumedSeat": 20,
+    "semesterSessionId": 20261,
+    "parentSectionId": null,
+    "faculties": "KNI",
+    "roomName": "09H-34C",
+    "roomNumber": "09H-34C",
+    "academicDegree": "UNDERGRADUATE",
+    "sectionSchedule": {
+      "classPairId": null,
+      "classSlotId": null,
+      "finalExamDate": "2026-05-14",
+      "finalExamStartTime": "08:30:00",
+      "finalExamEndTime": "10:30:00",
+      "midExamDate": "2026-03-31",
+      "midExamStartTime": "08:30:00",
+      "midExamEndTime": "10:30:00",
+      "finalExamDetail": "May 14, 2026 8:30 AM - 10:30 AM",
+      "midExamDetail": "Mar 31, 2026 8:30 AM - 10:30 AM",
+      "classStartDate": "2026-01-31",
+      "classEndDate": "2026-05-10",
+      "classSchedules": [
+        {
+          "startTime": "15:30:00",
+          "endTime": "16:50:00",
+          "day": "MONDAY"
+        },
+        {
+          "startTime": "15:30:00",
+          "endTime": "16:50:00",
+          "day": "WEDNESDAY"
+        }
+      ]
+    },
+    "labSchedules": [
+      {
+        "startTime": "08:00:00",
+        "endTime": "10:50:00",
+        "day": "THURSDAY"
+      }
+    ],
+    "labSectionId": 182946,
+    "labCourseCode": "CSE110L",
+    "labFaculties": "TBA",
+    "labName": "PROGRAMMING LANGUAGE I LAB",
+    "labRoomName": "09B-09L",
+    "prerequisiteCourses": "N/A",
+    "preRegLabSchedule": "THURSDAY(8:00 AM-10:50 AM-09B-09L)",
+    "preRegSchedule": "MONDAY(3:30 PM-4:50 PM-09H-34C)\nWEDNESDAY(3:30 PM-4:50 PM-09H-34C)"
+  },
+  {
+    "sectionId": 182943,
+    "courseId": 1510,
+    "sectionName": "09",
+    "courseCredit": 3,
+    "courseCode": "CSE110",
+    "sectionType": "THEORY",
+    "capacity": 20,
+    "consumedSeat": 20,
+    "semesterSessionId": 20261,
+    "parentSectionId": null,
+    "faculties": "KNI",
+    "roomName": "09H-34C",
+    "roomNumber": "09H-34C",
+    "academicDegree": "UNDERGRADUATE",
+    "sectionSchedule": {
+      "classPairId": null,
+      "classSlotId": null,
+      "finalExamDate": "2026-05-14",
+      "finalExamStartTime": "08:30:00",
+      "finalExamEndTime": "10:30:00",
+      "midExamDate": "2026-03-31",
+      "midExamStartTime": "08:30:00",
+      "midExamEndTime": "10:30:00",
+      "finalExamDetail": "May 14, 2026 8:30 AM - 10:30 AM",
+      "midExamDetail": "Mar 31, 2026 8:30 AM - 10:30 AM",
+      "classStartDate": "2026-01-31",
+      "classEndDate": "2026-05-10",
+      "classSchedules": [
+        {
+          "startTime": "14:00:00",
+          "endTime": "15:20:00",
+          "day": "MONDAY"
+        },
+        {
+          "startTime": "14:00:00",
+          "endTime": "15:20:00",
+          "day": "WEDNESDAY"
+        }
+      ]
+    },
+    "labSchedules": [
+      {
+        "startTime": "14:00:00",
+        "endTime": "16:50:00",
+        "day": "THURSDAY"
+      }
+    ],
+    "labSectionId": 182944,
+    "labCourseCode": "CSE110L",
+    "labFaculties": "TBA",
+    "labName": "PROGRAMMING LANGUAGE I LAB",
+    "labRoomName": "09B-08L",
+    "prerequisiteCourses": "N/A",
+    "preRegLabSchedule": "THURSDAY(2:00 PM-4:50 PM-09B-08L)",
+    "preRegSchedule": "MONDAY(2:00 PM-3:20 PM-09H-34C)\nWEDNESDAY(2:00 PM-3:20 PM-09H-34C)"
+  }
+]
