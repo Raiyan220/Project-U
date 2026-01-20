@@ -1,21 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TransactionalEmailsApi, SendSmtpEmail, ApiClient } from '@getbrevo/brevo';
+import * as brevo from '@getbrevo/brevo';
 
 @Injectable()
 export class MailService {
-  private apiInstance: TransactionalEmailsApi;
+  private apiInstance: brevo.TransactionalEmailsApi;
   private readonly logger = new Logger(MailService.name);
   private readonly fromEmail: string;
   private readonly fromName: string;
 
   constructor() {
-    // Initialize Brevo API
-    const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
+    // Set API key in default configuration
+    const defaultClient = brevo.ApiClient.instance;
+    const apiKey = defaultClient.authentications['api-key'];
+    apiKey.apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
 
-    const apiClient = new ApiClient();
-    apiClient.authentications['api-key'].apiKey = apiKey;
-
-    this.apiInstance = new TransactionalEmailsApi(apiClient);
+    this.apiInstance = new brevo.TransactionalEmailsApi();
     this.fromEmail = process.env.SMTP_FROM_EMAIL || 'noreply@uniflow.com';
     this.fromName = process.env.SMTP_FROM_NAME || 'UniFlow';
 
@@ -52,7 +51,7 @@ export class MailService {
     availableSeats: number,
   ) {
     try {
-      const sendSmtpEmail = new SendSmtpEmail();
+      const sendSmtpEmail = new brevo.SendSmtpEmail();
 
       sendSmtpEmail.sender = { name: this.fromName, email: this.fromEmail };
       sendSmtpEmail.to = [{ email: to }];
@@ -84,7 +83,7 @@ export class MailService {
 
   async sendPasswordResetEmail(to: string, otp: string) {
     try {
-      const sendSmtpEmail = new SendSmtpEmail();
+      const sendSmtpEmail = new brevo.SendSmtpEmail();
 
       sendSmtpEmail.sender = { name: 'UniFlow Security', email: this.fromEmail };
       sendSmtpEmail.to = [{ email: to }];
