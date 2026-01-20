@@ -19,9 +19,21 @@ export class MailService {
     });
   }
 
+
+
   async verifyConnection() {
+    this.logger.log(`Testing SMTP Connection... Host: ${(this.transporter.options as any).host}, Port: ${(this.transporter.options as any).port}, Secure: ${(this.transporter.options as any).secure}`);
     try {
-      await this.transporter.verify();
+      // Add a timeout to the verify call ensuring it doesn't hang forever
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Connection timed out after 10s')), 10000);
+        this.transporter.verify((error, success) => {
+          clearTimeout(timeout);
+          if (error) reject(error);
+          else resolve(success);
+        });
+      });
+
       return { success: true, message: 'SMTP Connection established successfully' };
     } catch (error) {
       return {
