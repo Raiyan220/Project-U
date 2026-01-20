@@ -22,7 +22,7 @@ async function bootstrap() {
       process.env.FRONTEND_URL,
       process.env.VITE_API_URL,
       'https://project-u.vercel.app', // Fallback for your specific app
-      (origin, callback) => {
+      (origin: string, callback: Function) => {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
         if (origin.includes('vercel.app')) return callback(null, true);
