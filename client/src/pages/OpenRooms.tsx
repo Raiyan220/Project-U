@@ -37,8 +37,8 @@ const OpenRooms: React.FC = () => {
             try {
                 setLoading(true);
                 const [buildingsRes, roomsRes] = await Promise.all([
-                    axios.get('http://localhost:3000/rooms/buildings'),
-                    axios.get('http://localhost:3000/rooms/available')
+                    axios.get(`${import.meta.env.VITE_API_URL}/rooms/buildings`),
+                    axios.get(`${import.meta.env.VITE_API_URL}/rooms/available`)
                 ]);
                 setBuildings(buildingsRes.data);
                 setRooms(roomsRes.data);
@@ -56,7 +56,7 @@ const OpenRooms: React.FC = () => {
     const fetchRooms = async (building: string) => {
         try {
             setLoading(true);
-            const res = await axios.get('http://localhost:3000/rooms/available', {
+            const res = await axios.get(`${import.meta.env.VITE_API_URL}/rooms/available`, {
                 params: { building }
             });
             setRooms(res.data);
