@@ -15,8 +15,23 @@ async function bootstrap() {
 
   // Enable CORS for frontend
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      process.env.CLIENT_URL,
+      process.env.FRONTEND_URL,
+      process.env.VITE_API_URL,
+      'https://project-u.vercel.app', // Fallback for your specific app
+      (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (origin.includes('vercel.app')) return callback(null, true);
+        callback(null, true);
+      }
+    ].filter(Boolean),
     credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Accept, Authorization',
   });
 
   // Enable compression
