@@ -9,7 +9,7 @@ async function checkCurrentStatus() {
     const day = 'WEDNESDAY'; // Hardcoded based on current time for verification
     const hours = now.getHours();
     const minutes = now.getMinutes();
-    const currentTime = hours * 60 + minutes;
+    const currentTime = hours * 100 + minutes;
 
     console.log(`\n=== Checking Status for ${day} at ${hours}:${minutes.toString().padStart(2, '0')} (${currentTime}) ===`);
 
@@ -38,8 +38,10 @@ async function checkCurrentStatus() {
 
     console.log(`\n🚫 OCCUPIED ROOMS (${occupiedSlots.length} found - showing top 10):`);
     occupiedSlots.forEach(slot => {
-        console.log(`[${slot.building}-${slot.roomNumber}] Occupied by ${slot.section.course.code} Sec ${slot.section.sectionNumber}`);
-        console.log(`   Time: ${formatTime(slot.startTime)} - ${formatTime(slot.endTime)} (Free in ${slot.endTime - currentTime} mins)`);
+        const courseCode = slot.section?.course?.code || 'Unknown';
+        const sectionNum = slot.section?.sectionNumber || '??';
+        console.log(`[${slot.building}-${slot.roomNumber}] Occupied by ${courseCode} Sec ${sectionNum}`);
+        console.log(`   Time: ${formatTime(slot.startTime)} - ${formatTime(slot.endTime)} (Free in ${calculateRemainingMins(slot.endTime, currentTime)} mins)`);
     });
 
     // 2. Find Next Class for a sample room that is NOT occupied
@@ -61,13 +63,21 @@ async function checkCurrentStatus() {
 
     console.log(`\n✅ UPCOMING CLASSES (Free Until...) sample:`);
     upcomingSlots.forEach(slot => {
-        console.log(`[${slot.building}-${slot.roomNumber}] Free until ${formatTime(slot.startTime)} (${slot.startTime - currentTime} mins from now)`);
+        console.log(`[${slot.building}-${slot.roomNumber}] Free until ${formatTime(slot.startTime)} (${calculateRemainingMins(slot.startTime, currentTime)} mins from now)`);
     });
 }
 
-function formatTime(minutes: number) {
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
+function calculateRemainingMins(futureHHMM: number, currentHHMM: number): number {
+    const fH = Math.floor(futureHHMM / 100);
+    const fM = futureHHMM % 100;
+    const cH = Math.floor(currentHHMM / 100);
+    const cM = currentHHMM % 100;
+    return (fH * 60 + fM) - (cH * 60 + cM);
+}
+
+function formatTime(hhmm: number) {
+    const h = Math.floor(hhmm / 100);
+    const m = hhmm % 100;
     const ampm = h >= 12 ? 'PM' : 'AM';
     const h12 = h % 12 || 12;
     return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
