@@ -13,6 +13,10 @@ import { Link } from 'react-router-dom';
 interface Room {
     roomNumber: string;
     building: string;
+    status: 'FREE' | 'BUSY';
+    currentClass?: string;
+    freeUntil?: number | null;
+    busyUntil?: number;
 }
 
 const OpenRooms: React.FC = () => {
@@ -74,6 +78,14 @@ const OpenRooms: React.FC = () => {
 
     const formatTime = (date: Date) => {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const formatTimeFromHHMM = (hhmm: number) => {
+        const h = Math.floor(hhmm / 100);
+        const m = hhmm % 100;
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
     };
 
     return (
@@ -162,28 +174,61 @@ const OpenRooms: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {rooms.map((room, idx) => (
-                            <div
-                                key={`${room.building}-${room.roomNumber}-${idx}`}
-                                className="group relative bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-2xl hover:bg-white/20 transition-all hover:-translate-y-1 cursor-default hover:border-purple-500/50 overflow-hidden"
-                            >
-                                {/* Glow Effect */}
-                                <div className="absolute inset-0 bg-gradient-to-br from-purple-500/0 via-transparent to-purple-500/0 group-hover:from-purple-500/10 transition-all duration-500" />
+                        {[...rooms]
+                            .sort((a, b) => {
+                                if (a.status === b.status) return 0;
+                                return a.status === 'FREE' ? -1 : 1;
+                            })
+                            .map((room, idx) => {
+                                const isBusy = room.status === 'BUSY';
 
-                                <div className="relative z-10 flex flex-col items-center">
-                                    <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full mb-3 uppercase tracking-tighter border border-emerald-500/20">
-                                        Free
-                                    </span>
-                                    <p className="text-2xl font-black text-white group-hover:text-purple-300 transition-colors">
-                                        {room.roomNumber}
-                                    </p>
-                                    <p className="text-xs text-indigo-200 mt-1 flex items-center gap-1">
-                                        <MapPin className="w-3 h-3 text-indigo-300" />
-                                        {room.building === 'UB' ? 'UB' : `Floor ${room.building}`}
-                                    </p>
-                                </div>
-                            </div>
-                        ))}
+                                const badgeText = isBusy
+                                    ? `BUSY: Free at ${formatTimeFromHHMM(room.busyUntil!)}`
+                                    : room.freeUntil
+                                        ? `Until ${formatTimeFromHHMM(room.freeUntil)}`
+                                        : 'Free rest of day';
+
+                                // Calculate availability duration color for free rooms
+                                const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeUntil - (currentTime.getHours() * 100 + currentTime.getMinutes())) > 100);
+
+                                return (
+                                    <div
+                                        key={`${room.building}-${room.roomNumber}-${idx}`}
+                                        className={`group relative backdrop-blur-xl border p-5 rounded-2xl transition-all hover:-translate-y-1 cursor-default overflow-hidden
+                                            ${isBusy
+                                                ? 'bg-slate-900/40 border-slate-700/50 grayscale-[0.5] hover:grayscale-0'
+                                                : 'bg-white/10 border-white/20 hover:bg-white/20 hover:border-purple-500/50 shadow-lg shadow-purple-900/10'}`}
+                                    >
+                                        {/* Status Badge */}
+                                        <div className="relative z-10 flex flex-col items-center">
+                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full mb-3 uppercase tracking-wider border 
+                                                ${isBusy
+                                                    ? 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                                                    : isLongAvailability
+                                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/20'
+                                                        : 'bg-amber-500/20 text-amber-300 border-amber-500/20'}`}>
+                                                {badgeText}
+                                            </span>
+
+                                            <p className={`text-2xl font-black transition-colors ${isBusy ? 'text-slate-400' : 'text-white group-hover:text-purple-300'}`}>
+                                                {room.roomNumber}
+                                            </p>
+
+                                            <p className="text-[10px] text-indigo-200 mt-1 flex items-center gap-1 font-medium">
+                                                <MapPin className="w-3 h-3 text-indigo-300" />
+                                                {room.building === 'UB' ? 'UB' : `Floor ${room.building}`}
+                                            </p>
+
+                                            {isBusy && room.currentClass && (
+                                                <div className="mt-3 pt-3 border-t border-slate-700/50 w-full text-center">
+                                                    <p className="text-[9px] text-slate-500 uppercase tracking-tighter mb-0.5">Ongoing Class</p>
+                                                    <p className="text-[11px] font-bold text-slate-300 truncate px-2">{room.currentClass}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                     </div>
                 )}
             </div>

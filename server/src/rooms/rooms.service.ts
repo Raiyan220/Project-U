@@ -9,7 +9,7 @@ export class RoomsService {
   private lastCacheTime = 0;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // Check if a building code is valid (starts with digits like "07A", "10B", or is "UB"/"TBA")
   private isValidBuilding(building: string): boolean {
@@ -83,9 +83,16 @@ export class RoomsService {
     return floors;
   }
 
+  private toMinutes(hhmm: number): number {
+    const h = Math.floor(hhmm / 100);
+    const m = hhmm % 100;
+    return h * 60 + m;
+  }
+
   async findAvailableRooms(day: string, time: number, floor?: string) {
     // 1. Get all known rooms (from cache)
     const { rooms } = await this.getCachedData();
+    const timeInMins = this.toMinutes(time);
 
     let targetRooms = rooms;
     if (floor && floor !== 'UB') {
@@ -101,7 +108,7 @@ export class RoomsService {
       );
     }
 
-    // 2. Find rooms that have a class at this time (This must be real-time)
+    // 2. Find currently occupied rooms and their classes
     // Build the building filter based on floor
     let buildingFilter: any = {};
     if (floor && floor !== 'UB') {
@@ -130,16 +137,67 @@ export class RoomsService {
       select: {
         roomNumber: true,
         building: true,
+        endTime: true,
+        section: {
+          select: {
+            course: { select: { code: true } },
+            sectionNumber: true
+          }
+        }
       },
     });
 
-    const occupiedSet = new Set(
-      occupiedSlots.map((s) => `${s.building}-${s.roomNumber}`),
-    );
+    const occupiedMap = new Map<string, any>();
+    occupiedSlots.forEach(s => {
+      occupiedMap.set(`${s.building}-${s.roomNumber}`, s);
+    });
 
-    // 3. Filter out occupied rooms
-    return targetRooms.filter(
-      (room) => !occupiedSet.has(`${room.building}-${room.roomNumber}`),
-    );
+    // 3. Find future slots to calculate next class start
+    const futureSlots = await this.prisma.roomSlot.findMany({
+      where: {
+        day: day.toUpperCase(),
+        startTime: { gt: time }, // Starts AFTER now
+        ...(floor ? buildingFilter : {}),
+      },
+      select: {
+        roomNumber: true,
+        building: true,
+        startTime: true,
+      },
+      orderBy: { startTime: 'asc' },
+    });
+
+    // Map next class time per room
+    const roomNextClassMap = new Map<string, number>();
+    for (const slot of futureSlots) {
+      const key = `${slot.building}-${slot.roomNumber}`;
+      if (!roomNextClassMap.has(key)) {
+        roomNextClassMap.set(key, slot.startTime);
+      }
+    }
+
+    // 4. Combine data for all target rooms
+    const result = targetRooms.map((room) => {
+      const key = `${room.building}-${room.roomNumber}`;
+      const occupied = occupiedMap.get(key);
+      const nextClassStart = roomNextClassMap.get(key);
+
+      if (occupied) {
+        return {
+          ...room,
+          status: 'BUSY',
+          currentClass: `${occupied.section.course.code} (${occupied.section.sectionNumber})`,
+          busyUntil: occupied.endTime,
+        };
+      } else {
+        return {
+          ...room,
+          status: 'FREE',
+          freeUntil: nextClassStart || null, // null means free for rest of day
+        };
+      }
+    });
+
+    return result;
   }
 }
