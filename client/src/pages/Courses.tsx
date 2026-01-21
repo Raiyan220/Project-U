@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { courseService } from '../services/courseService';
-import { CourseCard } from '../components/CourseCard';
+// import { CourseCard } from '../components/CourseCard'; // Removed as per user request
+import { LiveCourseTable } from '../components/LiveCourseTable';
 import { useRealtimeSeats } from '../hooks/useRealtimeSeats';
 import type { Course } from '../types/course';
 
@@ -126,10 +127,19 @@ export default function Courses() {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                            className="flex flex-col gap-6"
                         >
                             {courses?.map((course: Course) => (
-                                <CourseCard key={course.id} course={course} />
+                                <div key={course.id} className="mb-8 bg-slate-900/50 p-6 rounded-2xl border border-white/10 backdrop-blur-sm">
+                                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+                                        <span className="bg-purple-600 px-3 py-1 rounded-lg text-lg shadow-lg shadow-purple-500/20">{course.code}</span>
+                                        <span className="text-gray-300 text-lg font-normal truncate">{course.title}</span>
+                                        <span className="ml-auto text-sm bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700">
+                                            {course.department}
+                                        </span>
+                                    </h2>
+                                    <LiveCourseTable course={course} />
+                                </div>
                             ))}
                         </motion.div>
                     </AnimatePresence>
