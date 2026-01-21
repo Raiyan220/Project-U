@@ -2,7 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const prisma = new PrismaClient();
 
-const CDN_URL = 'https://usis-cdn.eniamza.com/connect.json';
+const CONNECT_SLMS_URL = 'https://usis-cdn.eniamza.com/connect.json';
 
 // Time parsing utilities
 const parseTime12h = (time12h) => {
@@ -57,7 +57,7 @@ async function fullSync() {
     console.log('🚀 Starting FULL course sync...');
     console.log('📡 Fetching data from CDN...');
 
-    const response = await axios.get(CDN_URL);
+    const response = await axios.get(CONNECT_SLMS_URL);
     const sections = response.data;
     console.log(`📦 Fetched ${sections.length} sections from CDN`);
 

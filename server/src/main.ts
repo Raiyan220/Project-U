@@ -28,7 +28,7 @@ async function bootstrap() {
         if (!origin) return callback(null, true);
         if (origin.includes('vercel.app')) return callback(null, true);
         callback(null, true);
-      }
+      },
     ].filter(Boolean),
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',

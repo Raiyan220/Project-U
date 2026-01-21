@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /profile
+
+Sitemap: https://uniflowbd.vercel.app/sitemap.xml

@@ -16,10 +16,15 @@ import {
   RegisterDto,
   ChangePasswordDto,
   ForgotPasswordDto,
-  ResetPasswordDto
+  ResetPasswordDto,
 } from './dto/auth.dto';
 import { UpdateProfilePictureDto } from './dto/update-profile.dto';
-import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -42,7 +47,7 @@ interface GoogleUser {
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) { }
+  constructor(private authService: AuthService) {}
 
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
@@ -76,7 +81,10 @@ export class AuthController {
       req.user as GoogleUser,
     );
     // Redirect to frontend with token
-    const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://uniflowbd.vercel.app';
+    const frontendUrl =
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      'https://uniflowbd.vercel.app';
     res.redirect(`${frontendUrl}/dashboard?token=${access_token}`);
   }
 
@@ -85,7 +93,10 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Change password' })
   @ApiResponse({ status: 200, description: 'Password updated' })
-  async changePassword(@CurrentUser() user: User, @Body() dto: ChangePasswordDto) {
+  async changePassword(
+    @CurrentUser() user: User,
+    @Body() dto: ChangePasswordDto,
+  ) {
     return this.authService.changePassword(user.id, dto);
   }
 
@@ -122,7 +133,10 @@ export class AuthController {
   ) {
     console.log('[AuthController] updateProfilePicture endpoint hit');
     console.log('[AuthController] user.id:', user.id);
-    console.log('[AuthController] dto.profilePicture length:', dto.profilePicture?.length);
+    console.log(
+      '[AuthController] dto.profilePicture length:',
+      dto.profilePicture?.length,
+    );
     return this.authService.updateProfilePicture(user.id, dto.profilePicture);
   }
 }

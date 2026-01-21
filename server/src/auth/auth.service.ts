@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -12,7 +13,7 @@ import {
   LoginDto,
   ChangePasswordDto,
   ForgotPasswordDto,
-  ResetPasswordDto
+  ResetPasswordDto,
 } from './dto/auth.dto';
 
 @Injectable()
@@ -21,7 +22,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private mailService: MailService,
-  ) { }
+  ) {}
 
   async register(dto: RegisterDto) {
     // Check if user already exists
@@ -72,6 +73,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check if user is banned
+    if (!user.isActive) {
+      throw new ForbiddenException(
+        'Account has been deactivated. Please contact support.',
+      );
+    }
+
     // Verify password
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
 
@@ -107,6 +115,12 @@ export class AuthService {
     });
 
     if (user) {
+      // Check if user is banned
+      if (!user.isActive) {
+        throw new ForbiddenException(
+          'Account has been deactivated. Please contact support.',
+        );
+      }
       // If user exists but googleId is missing (e.g. registered via email), update it
       if (!user.googleId) {
         user = await this.prisma.user.update({
@@ -151,13 +165,15 @@ export class AuthService {
   }
 
   async validateUser(userId: string) {
-    const result = await this.prisma.$queryRaw<Array<{
-      id: string;
-      email: string;
-      name: string | null;
-      role: string;
-      profilePicture: string | null;
-    }>>`
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        email: string;
+        name: string | null;
+        role: string;
+        profilePicture: string | null;
+      }>
+    >`
       SELECT "id", "email", "name", "role", "profilePicture"
       FROM "User" 
       WHERE "id" = ${userId}
@@ -187,7 +203,9 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
     if (!user) {
       return { message: 'If this email exists, an OTP has been sent.' };
     }
@@ -206,7 +224,7 @@ export class AuthService {
     });
 
     // Send email (async)
-    this.mailService.sendPasswordResetEmail(user.email, otp).catch(err => {
+    this.mailService.sendPasswordResetEmail(user.email, otp).catch((err) => {
       console.error('Failed to send reset email', err);
     });
 
@@ -214,7 +232,9 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
     if (!user || !user.resetOtp || !user.resetOtpExpires) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
@@ -242,26 +262,14 @@ export class AuthService {
 
   async updateProfilePicture(userId: string, profilePicture: string) {
     console.log('[AuthService] updateProfilePicture called');
-    console.log('[AuthService] userId:', userId);
-    console.log('[AuthService] profilePicture length:', profilePicture?.length);
 
     try {
-      // Use raw SQL to bypass Prisma type checking issues
-      const result = await this.prisma.$executeRaw`
-        UPDATE "User"
-        SET "profilePicture" = ${profilePicture}
-        WHERE "id" = ${userId}
-      `;
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { profilePicture },
+      });
 
-      console.log('[AuthService] SQL execution result - rows affected:', result);
-
-      //Verify it was saved
-      const savedUser = await this.prisma.$queryRaw`
-        SELECT "id", "profilePicture" FROM "User" WHERE "id" = ${userId}
-      `;
-      console.log('[AuthService] Verification query result:', savedUser);
-
-      console.log('[AuthService] Update successful via raw SQL');
+      console.log('[AuthService] Update successful via Prisma');
       return { message: 'Profile picture updated successfully' };
     } catch (error) {
       console.error('[AuthService] Update failed:', error);

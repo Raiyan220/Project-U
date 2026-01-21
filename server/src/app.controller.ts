@@ -7,7 +7,7 @@ export class AppController {
   constructor(
     private readonly appService: AppService,
     private readonly mailService: MailService,
-  ) { }
+  ) {}
 
   @Get()
   getHello(): string {
@@ -25,7 +25,7 @@ export class AppController {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      message: 'UniFlow server is running'
+      message: 'UniFlow server is running',
     };
   }
 }

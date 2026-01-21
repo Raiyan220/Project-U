@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class MailService {
@@ -9,12 +10,38 @@ export class MailService {
   private readonly fromName: string;
   private readonly apiUrl = 'https://api.brevo.com/v3/smtp/email';
 
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     this.apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS || '';
-    this.fromEmail = process.env.SMTP_FROM_EMAIL || 'alraiyanxyz@gmail.com'; // Your verified Brevo sender
+    this.fromEmail = process.env.SMTP_FROM_EMAIL || 'alraiyanxyz@gmail.com';
     this.fromName = process.env.SMTP_FROM_NAME || 'UniFlow';
 
-    this.logger.log(`Mail service initialized with Brevo HTTP API (300 emails/day limit)`);
+    this.logger.log(
+      `Mail service initialized with Brevo HTTP API (300 emails/day limit)`,
+    );
+  }
+
+  private async logEmail(
+    to: string,
+    subject: string,
+    type: string,
+    status: string,
+    courseCode?: string,
+    sectionNum?: string,
+  ) {
+    try {
+      await this.prisma.emailLog.create({
+        data: {
+          to,
+          subject,
+          type,
+          status,
+          courseCode,
+          sectionNum,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log email: ${error}`);
+    }
   }
 
   async verifyConnection() {
@@ -23,7 +50,6 @@ export class MailService {
         throw new Error('BREVO_API_KEY not configured');
       }
 
-      // Test API key by calling account endpoint
       await axios.get('https://api.brevo.com/v3/account', {
         headers: {
           'api-key': this.apiKey,
@@ -34,14 +60,14 @@ export class MailService {
         success: true,
         message: 'Brevo API connected successfully',
         provider: 'Brevo HTTP API',
-        limit: '300 emails/day'
+        limit: '300 emails/day',
       };
     } catch (error) {
       return {
         success: false,
         message: 'Brevo API connection failed',
         error: error instanceof Error ? error.message : String(error),
-        hint: 'Check BREVO_API_KEY environment variable'
+        hint: 'Check BREVO_API_KEY environment variable',
       };
     }
   }
@@ -52,13 +78,15 @@ export class MailService {
     sectionNumber: string,
     availableSeats: number,
   ) {
+    const subject = `🚨 Seat Available! ${courseCode} Section ${sectionNumber}`;
+
     try {
       await axios.post(
         this.apiUrl,
         {
           sender: { name: this.fromName, email: this.fromEmail },
           to: [{ email: to }],
-          subject: `🚨 Seat Available! ${courseCode} Section ${sectionNumber}`,
+          subject,
           htmlContent: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
               <h2 style="color: #6366f1;">Seat Alert!</h2>
@@ -84,21 +112,45 @@ export class MailService {
       );
 
       this.logger.log(`Email sent to ${to} via Brevo API`);
+
+      // Log successful email
+      await this.logEmail(
+        to,
+        subject,
+        'SEAT_AVAILABLE',
+        'SENT',
+        courseCode,
+        sectionNumber,
+      );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to send email to ${to}: ${errorMessage}`);
+
+      // Log failed email
+      await this.logEmail(
+        to,
+        subject,
+        'SEAT_AVAILABLE',
+        'FAILED',
+        courseCode,
+        sectionNumber,
+      );
+
       throw error;
     }
   }
 
   async sendPasswordResetEmail(to: string, otp: string) {
+    const subject = `Password Reset Request - UniFlow`;
+
     try {
       await axios.post(
         this.apiUrl,
         {
           sender: { name: 'UniFlow Security', email: this.fromEmail },
           to: [{ email: to }],
-          subject: `Password Reset Request - UniFlow`,
+          subject,
           htmlContent: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
               <h2 style="color: #6366f1;">Reset Your Password</h2>
@@ -122,9 +174,19 @@ export class MailService {
       );
 
       this.logger.log(`Password reset email sent to ${to} via Brevo API`);
+
+      // Log successful email
+      await this.logEmail(to, subject, 'PASSWORD_RESET', 'SENT');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to send password reset email to ${to}: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send password reset email to ${to}: ${errorMessage}`,
+      );
+
+      // Log failed email
+      await this.logEmail(to, subject, 'PASSWORD_RESET', 'FAILED');
+
       throw error;
     }
   }

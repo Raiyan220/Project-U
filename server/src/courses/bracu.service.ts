@@ -50,7 +50,7 @@ interface BracuSection {
 @Injectable()
 export class BracuService implements OnModuleInit {
   private readonly logger = new Logger(BracuService.name);
-  private readonly CDN_URL = 'https://usis-cdn.eniamza.com/connect.json';
+  private readonly CONNECT_SLMS_URL = 'https://usis-cdn.eniamza.com/connect.json';
   private previousSeatData = new Map<
     string,
     { enrolled: number; capacity: number; slotCount: number }
@@ -74,7 +74,7 @@ export class BracuService implements OnModuleInit {
         id: true,
         enrolled: true,
         capacity: true,
-        _count: { select: { slots: true } }
+        _count: { select: { slots: true } },
       },
     });
     existingSections.forEach((s) => {
@@ -102,7 +102,7 @@ export class BracuService implements OnModuleInit {
       this.logger.log('Cron Trigger: Checking for periodic seat reminders...');
 
       // Get all active tracks with their custom intervals
-      const tracksToCheck = await (this.prisma.tracking as any).findMany({
+      const tracksToCheck = await this.prisma.tracking.findMany({
         where: {
           active: true,
         },
@@ -121,49 +121,66 @@ export class BracuService implements OnModuleInit {
         return;
       }
 
-      this.logger.log(`Cron: Found ${tracksToCheck.length} active tracks to check.`);
+      this.logger.log(
+        `Cron: Found ${tracksToCheck.length} active tracks to check.`,
+      );
 
       const now = Date.now();
       let notifiedCount = 0;
 
-      for (const track of tracksToCheck as any[]) {
+      for (const track of tracksToCheck) {
         // Use user's custom interval (default: 5 minutes)
         const intervalMinutes = track.notifyIntervalMinutes || 5;
         const intervalMs = intervalMinutes * 60 * 1000;
         const intervalAgo = new Date(now - intervalMs);
 
         // Check if enough time has passed since last notification
-        const shouldNotify = !track.lastNotifiedAt || new Date(track.lastNotifiedAt) < intervalAgo;
+        const shouldNotify =
+          !track.lastNotifiedAt || new Date(track.lastNotifiedAt) < intervalAgo;
 
         if (!shouldNotify) {
           continue; // Skip - still in cooldown period
         }
 
-        const available = Math.max(0, track.section.capacity - track.section.enrolled);
+        const available = Math.max(
+          0,
+          track.section.capacity - track.section.enrolled,
+        );
 
         if (available > 0 && track.user.email) {
-          this.logger.log(`Cron: Sending reminder to ${track.user.email} for ${track.section.course.code} (interval: ${intervalMinutes}min)`);
+          this.logger.log(
+            `Cron: Sending reminder to ${track.user.email} for ${track.section.course.code} (interval: ${intervalMinutes}min)`,
+          );
           notifiedCount++;
 
-          void this.mailService.sendSeatAvailableEmail(
-            track.user.email,
-            track.section.course.code,
-            track.section.sectionNumber,
-            available,
-          ).then(() => {
-            this.trackingService.updateLastNotified(track.id).catch((e) => {
-              this.logger.error(`Cron: Failed to update lastNotifiedAt for ${track.id}: ${e.message}`);
+          void this.mailService
+            .sendSeatAvailableEmail(
+              track.user.email,
+              track.section.course.code,
+              track.section.sectionNumber,
+              available,
+            )
+            .then(() => {
+              this.trackingService.updateLastNotified(track.id).catch((e) => {
+                this.logger.error(
+                  `Cron: Failed to update lastNotifiedAt for ${track.id}: ${e.message}`,
+                );
+              });
+            })
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.error(
+                `Cron: Reminder failed for ${track.user.email}: ${msg}`,
+              );
             });
-          }).catch(err => {
-            const msg = err instanceof Error ? err.message : String(err);
-            this.logger.error(`Cron: Reminder failed for ${track.user.email}: ${msg}`);
-          });
         }
       }
 
       this.logger.log(`Cron: Sent ${notifiedCount} reminder notifications.`);
     } catch (error) {
-      this.logger.error(`Cron: Error in processTrackedReminders: ${error.message}`);
+      this.logger.error(
+        `Cron: Error in processTrackedReminders: ${error.message}`,
+      );
     }
   }
 
@@ -177,7 +194,7 @@ export class BracuService implements OnModuleInit {
     this.isSyncing = true;
     this.logger.log('Starting BracU course synchronization...');
     try {
-      const response = await firstValueFrom(this.httpService.get(this.CDN_URL));
+      const response = await firstValueFrom(this.httpService.get(this.CONNECT_SLMS_URL));
       const sections = response.data as BracuSection[];
 
       if (!Array.isArray(sections)) {
@@ -246,11 +263,15 @@ export class BracuService implements OnModuleInit {
 
       // Bulk delete slots for all sections that need updates (HUGE performance gain)
       if (sectionsToUpdate.length > 0) {
-        const sectionIdsToDelete = sectionsToUpdate.map((s) => s.sectionId.toString());
+        const sectionIdsToDelete = sectionsToUpdate.map((s) =>
+          s.sectionId.toString(),
+        );
         await this.prisma.roomSlot.deleteMany({
           where: { sectionId: { in: sectionIdsToDelete } },
         });
-        this.logger.log(`Bulk deleted slots for ${sectionsToUpdate.length} sections`);
+        this.logger.log(
+          `Bulk deleted slots for ${sectionsToUpdate.length} sections`,
+        );
       }
 
       // 3. Upsert Sections
@@ -274,13 +295,9 @@ export class BracuService implements OnModuleInit {
                   enrolled: item.consumedSeat,
                   status:
                     item.consumedSeat >= item.capacity ? 'CLOSED' : 'OPEN',
-                  // @ts-ignore
                   facultyInitials: item.faculties,
-                  // @ts-ignore
                   examDate: item.sectionSchedule?.finalExamDetail,
-                  // @ts-ignore
                   labFacultyInitials: item.labFaculties,
-                  // @ts-ignore
                   prerequisites: item.prerequisiteCourses,
                   lastUpdated: new Date(),
                 },
@@ -292,13 +309,9 @@ export class BracuService implements OnModuleInit {
                   enrolled: item.consumedSeat,
                   status:
                     item.consumedSeat >= item.capacity ? 'CLOSED' : 'OPEN',
-                  // @ts-ignore
                   facultyInitials: item.faculties,
-                  // @ts-ignore
                   examDate: item.sectionSchedule?.finalExamDetail,
-                  // @ts-ignore
                   labFacultyInitials: item.labFaculties,
-                  // @ts-ignore
                   prerequisites: item.prerequisiteCourses,
                 },
               });
@@ -338,7 +351,9 @@ export class BracuService implements OnModuleInit {
                 type: 'CLASS' | 'LAB',
               ) => {
                 if (!str) return [];
-                const lines = str.split(/[\r\n]+/).filter((line) => line.trim());
+                const lines = str
+                  .split(/[\r\n]+/)
+                  .filter((line) => line.trim());
                 const results: any[] = [];
 
                 for (const line of lines) {
@@ -396,9 +411,13 @@ export class BracuService implements OnModuleInit {
                 classSlotsProcessed = true;
               }
 
-              if (!classSlotsProcessed && item.sectionSchedule?.classSchedules) {
+              if (
+                !classSlotsProcessed &&
+                item.sectionSchedule?.classSchedules
+              ) {
                 for (const slot of item.sectionSchedule.classSchedules) {
-                  const roomStr = slot.roomNo || item.roomNumber || item.roomName || 'TBA';
+                  const roomStr =
+                    slot.roomNo || item.roomNumber || item.roomName || 'TBA';
                   const floorMatch = roomStr.match(/^([^-]+)/);
                   const floorCode = floorMatch ? floorMatch[1] : 'UB';
                   slotsToCreate.push({
@@ -438,10 +457,14 @@ export class BracuService implements OnModuleInit {
               }
 
               // Fallback to labSchedules or labRoomName if string parsing yielded nothing
-              if (!labSlotsProcessed && (item.labSchedules || item.labRoomName)) {
+              if (
+                !labSlotsProcessed &&
+                (item.labSchedules || item.labRoomName)
+              ) {
                 if (item.labSchedules && item.labSchedules.length > 0) {
                   for (const slot of item.labSchedules) {
-                    const roomStr = slot.roomNo || item.labRoomName || item.roomName || 'TBA';
+                    const roomStr =
+                      slot.roomNo || item.labRoomName || item.roomName || 'TBA';
                     const floorMatch = roomStr.match(/^([^-]+)/);
                     const floorCode = floorMatch ? floorMatch[1] : 'UB';
                     slotsToCreate.push({
@@ -461,7 +484,7 @@ export class BracuService implements OnModuleInit {
               // Deduplicate slots before insertion to prevent DB duplicates
               if (slotsToCreate.length > 0) {
                 const dedupMap = new Map<string, any>();
-                slotsToCreate.forEach(slot => {
+                slotsToCreate.forEach((slot) => {
                   const key = `${slot.sectionId}-${slot.day}-${slot.startTime}-${slot.endTime}-${slot.roomNumber}-${slot.type}`;
                   if (!dedupMap.has(key)) {
                     dedupMap.set(key, slot);
@@ -469,7 +492,9 @@ export class BracuService implements OnModuleInit {
                 });
 
                 const uniqueSlots = Array.from(dedupMap.values());
-                this.logger.debug(`Section ${item.sectionId}: ${slotsToCreate.length} slots -> ${uniqueSlots.length} unique`);
+                this.logger.debug(
+                  `Section ${item.sectionId}: ${slotsToCreate.length} slots -> ${uniqueSlots.length} unique`,
+                );
 
                 await this.prisma.roomSlot.createMany({
                   data: uniqueSlots,
@@ -529,7 +554,9 @@ export class BracuService implements OnModuleInit {
           this.previousSeatData.set(sectionId, {
             enrolled: newEnrolled,
             capacity: newCapacity,
-            slotCount: (item as any)._processed ? (item as any)._slotCount : (prevData?.slotCount || 0)
+            slotCount: (item as any)._processed
+              ? (item as any)._slotCount
+              : prevData?.slotCount || 0,
           });
 
           // NEW: Notification Logic
@@ -584,7 +611,8 @@ export class BracuService implements OnModuleInit {
       const totalCourses = await this.prisma.course.count();
       const totalSections = sections.length;
       const totalAvailableSeats = sections.reduce(
-        (acc, section) => acc + Math.max(0, section.capacity - section.consumedSeat),
+        (acc, section) =>
+          acc + Math.max(0, section.capacity - section.consumedSeat),
         0,
       );
 
@@ -604,9 +632,13 @@ export class BracuService implements OnModuleInit {
         },
       });
 
-      this.logger.debug(`Stats updated: ${totalCourses} courses, ${totalSections} sections, ${totalAvailableSeats} available seats`);
+      this.logger.debug(
+        `Stats updated: ${totalCourses} courses, ${totalSections} sections, ${totalAvailableSeats} available seats`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to update course stats: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to update course stats: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -625,28 +657,38 @@ export class BracuService implements OnModuleInit {
         `Notifying ${trackers.length} trackers for ${courseCode} Sec ${sectionNumber}`,
       );
 
-      for (const track of trackers as any[]) {
+      for (const track of trackers) {
         // 5-minute cooldown check
         const fiveMinutesAgo = new Date(Date.now() - 4.5 * 60 * 1000); // 4.5 min to avoid strict edge cases
-        const shouldNotify = !track.lastNotifiedAt || track.lastNotifiedAt < fiveMinutesAgo;
+        const shouldNotify =
+          !track.lastNotifiedAt || track.lastNotifiedAt < fiveMinutesAgo;
 
         if (track.user.email && shouldNotify) {
-          this.logger.log(`Sync: Sending seat opening notification to ${track.user.email} for ${courseCode}`);
+          this.logger.log(
+            `Sync: Sending seat opening notification to ${track.user.email} for ${courseCode}`,
+          );
           // Send email asynchronously
-          void this.mailService.sendSeatAvailableEmail(
-            track.user.email,
-            courseCode,
-            sectionNumber,
-            available
-          ).then(() => {
-            // Update last notified time
-            this.trackingService.updateLastNotified(track.id).catch(() => { });
-          }).catch(err => {
-            const msg = err instanceof Error ? err.message : String(err);
-            this.logger.error(`Sync: Notification failed for ${track.user.email}: ${msg}`);
-          });
+          void this.mailService
+            .sendSeatAvailableEmail(
+              track.user.email,
+              courseCode,
+              sectionNumber,
+              available,
+            )
+            .then(() => {
+              // Update last notified time
+              this.trackingService.updateLastNotified(track.id).catch(() => { });
+            })
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.error(
+                `Sync: Notification failed for ${track.user.email}: ${msg}`,
+              );
+            });
         } else if (track.user.email) {
-          this.logger.debug(`Sync: Cooldown active for ${track.user.email} (${courseCode}). Skipping.`);
+          this.logger.debug(
+            `Sync: Cooldown active for ${track.user.email} (${courseCode}). Skipping.`,
+          );
         }
       }
 
@@ -655,8 +697,11 @@ export class BracuService implements OnModuleInit {
       // Usually "one-shot" is better to avoid spamming.
       // Let's stick to notifying as long as they track it for now.
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Error in handleSeatOpening for ${sectionId}: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Error in handleSeatOpening for ${sectionId}: ${errorMessage}`,
+      );
     }
   }
 }

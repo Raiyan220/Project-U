@@ -9,6 +9,8 @@ import { SectionsModule } from './sections/sections.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MailModule } from './mail/mail.module';
 import { RoomsModule } from './rooms/rooms.module';
+import { AdminModule } from './admin/admin.module';
+import { FeedbackModule } from './feedback/feedback.module';
 
 @Module({
   imports: [
@@ -19,9 +21,11 @@ import { RoomsModule } from './rooms/rooms.module';
     NotificationsModule,
     MailModule,
     RoomsModule,
+    AdminModule,
+    FeedbackModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

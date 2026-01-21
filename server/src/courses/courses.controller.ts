@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Query, Param, UseGuards, Patch, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Param,
+  UseGuards,
+  Patch,
+  Body,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CoursesService } from './courses.service';
 import { BracuService } from './bracu.service';
@@ -14,7 +23,7 @@ export class CoursesController {
     private readonly coursesService: CoursesService,
     private readonly bracuService: BracuService,
     private readonly trackingService: TrackingService,
-  ) { }
+  ) {}
 
   @Post('sync')
   @UseGuards(JwtAuthGuard)
@@ -68,13 +77,19 @@ export class CoursesController {
 
   @Patch('track/:sectionId/interval')
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Update email notification interval for a tracked section' })
+  @ApiOperation({
+    summary: 'Update email notification interval for a tracked section',
+  })
   async updateNotifyInterval(
     @CurrentUser() user: any,
     @Param('sectionId') sectionId: string,
     @Body('intervalMinutes') intervalMinutes: number,
   ) {
-    return this.trackingService.updateNotifyInterval(user.id, sectionId, intervalMinutes);
+    return this.trackingService.updateNotifyInterval(
+      user.id,
+      sectionId,
+      intervalMinutes,
+    );
   }
 
   @Get('tracking/my')

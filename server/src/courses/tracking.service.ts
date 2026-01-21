@@ -14,7 +14,7 @@ export class TrackingService {
   constructor(
     private prisma: PrismaService,
     private mailService: MailService,
-  ) { }
+  ) {}
 
   async trackSection(userId: string, sectionId: string) {
     // Check if section exists
@@ -55,10 +55,14 @@ export class TrackingService {
 
       // If seats are already available, send email immediately
       const available = Math.max(0, section.capacity - section.enrolled);
-      this.logger.log(`[TRACK] User ${tracking.user.email} tracking ${section.course.code} Sec ${section.sectionNumber} - Available: ${available}`);
+      this.logger.log(
+        `[TRACK] User ${tracking.user.email} tracking ${section.course.code} Sec ${section.sectionNumber} - Available: ${available}`,
+      );
 
       if (available > 0 && tracking.user.email) {
-        this.logger.log(`[EMAIL] Attempting to send immediate notification to ${tracking.user.email}`);
+        this.logger.log(
+          `[EMAIL] Attempting to send immediate notification to ${tracking.user.email}`,
+        );
         // Send email asynchronously
         this.mailService
           .sendSeatAvailableEmail(
@@ -68,15 +72,21 @@ export class TrackingService {
             available,
           )
           .then(() => {
-            this.logger.log(`[EMAIL] ✅ Successfully sent to ${tracking.user.email}`);
+            this.logger.log(
+              `[EMAIL] ✅ Successfully sent to ${tracking.user.email}`,
+            );
             this.updateLastNotified(tracking.id);
           })
           .catch((error) => {
             const msg = error instanceof Error ? error.message : String(error);
-            this.logger.error(`[EMAIL] ❌ Failed to send to ${tracking.user.email}: ${msg}`);
+            this.logger.error(
+              `[EMAIL] ❌ Failed to send to ${tracking.user.email}: ${msg}`,
+            );
           });
       } else {
-        this.logger.log(`[EMAIL] Skipped - No seats available or no user email`);
+        this.logger.log(
+          `[EMAIL] Skipped - No seats available or no user email`,
+        );
       }
 
       return tracking;
@@ -154,11 +164,17 @@ export class TrackingService {
     });
   }
 
-  async updateNotifyInterval(userId: string, sectionId: string, intervalMinutes: number) {
+  async updateNotifyInterval(
+    userId: string,
+    sectionId: string,
+    intervalMinutes: number,
+  ) {
     // Validate interval (allowed values: 1, 2, 3, 5, 10, 15, 30, 60)
     const allowedIntervals = [1, 2, 3, 5, 10, 15, 30, 60];
     if (!allowedIntervals.includes(intervalMinutes)) {
-      throw new Error(`Invalid interval. Allowed values: ${allowedIntervals.join(', ')}`);
+      throw new Error(
+        `Invalid interval. Allowed values: ${allowedIntervals.join(', ')}`,
+      );
     }
 
     return this.prisma.tracking.update({

@@ -12,8 +12,8 @@ const LoginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-export class RegisterDto extends createZodDto(RegisterSchema) { }
-export class LoginDto extends createZodDto(LoginSchema) { }
+export class RegisterDto extends createZodDto(RegisterSchema) {}
+export class LoginDto extends createZodDto(LoginSchema) {}
 
 const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -30,6 +30,6 @@ const ResetPasswordSchema = z.object({
   newPassword: z.string().min(6, 'New password must be at least 6 characters'),
 });
 
-export class ChangePasswordDto extends createZodDto(ChangePasswordSchema) { }
-export class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) { }
-export class ResetPasswordDto extends createZodDto(ResetPasswordSchema) { }
+export class ChangePasswordDto extends createZodDto(ChangePasswordSchema) {}
+export class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
+export class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}

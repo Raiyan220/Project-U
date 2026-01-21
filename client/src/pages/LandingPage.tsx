@@ -39,8 +39,8 @@ export default function LandingPage() {
                                 Seat Opening
                             </span>
                         </h1>
-                        <p className="text-xl md:text-2xl text-white/90 mb-12 max-w-2xl mx-auto">
-                            Track course availability in real-time and get instant notifications when seats become available.
+                        <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
+                            The ultimate <span className="font-bold text-white">BRAC University Advising Assistant</span>. Track real-time Connect SLMS seat availability and get instant notifications.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
@@ -117,6 +117,26 @@ export default function LandingPage() {
                         </div>
                     </motion.div>
                 </div>
+
+                {/* Developer Footer */}
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 1, duration: 1 }}
+                    className="absolute bottom-4 left-0 right-0 text-center"
+                >
+                    <p className="text-white/60 text-sm">
+                        Developed by{' '}
+                        <a
+                            href="https://www.facebook.com/share/1JmtqT5rAo/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-white hover:text-blue-200 font-medium transition-colors border-b border-white/30 hover:border-blue-200"
+                        >
+                            Md.Al-Raiyan
+                        </a>
+                    </p>
+                </motion.div>
             </div>
         </div>
     );

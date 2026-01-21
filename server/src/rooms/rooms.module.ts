@@ -3,7 +3,7 @@ import { RoomsService } from './rooms.service';
 import { RoomsController } from './rooms.controller';
 
 @Module({
-    providers: [RoomsService],
-    controllers: [RoomsController],
+  providers: [RoomsService],
+  controllers: [RoomsController],
 })
-export class RoomsModule { }
+export class RoomsModule {}

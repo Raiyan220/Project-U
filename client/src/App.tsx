@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import FeedbackButton from './components/FeedbackButton';
 import { Suspense, lazy } from 'react';
 
 // Lazy load pages for better performance
@@ -16,6 +18,9 @@ const OpenRooms = lazy(() => import('./pages/OpenRooms'));
 const RoutineMaker = lazy(() => import('./pages/RoutineMaker'));
 const Profile = lazy(() => import('./pages/Profile'));
 const CGPACalculator = lazy(() => import('./pages/CGPACalculator'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminUsers = lazy(() => import('./pages/AdminUsers'));
+const AdminFeedback = lazy(() => import('./pages/AdminFeedback'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,7 +96,38 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/admin"
+                element={
+                  <ErrorBoundary>
+                    <ProtectedRoute>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <ErrorBoundary>
+                    <ProtectedRoute>
+                      <AdminUsers />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                }
+              />
+              <Route
+                path="/admin/feedback"
+                element={
+                  <ErrorBoundary>
+                    <ProtectedRoute>
+                      <AdminFeedback />
+                    </ProtectedRoute>
+                  </ErrorBoundary>
+                }
+              />
             </Routes>
+            <FeedbackButton />
           </Suspense>
         </Router>
       </AuthProvider>

@@ -19,6 +19,7 @@ model User {
   password  String?    // Optional for OAuth users
   name      String?
   role      Role       @default(STUDENT)
+  isActive  Boolean    @default(true) // Users are active by default, admins can ban them
   provider  String     @default("email") // "email" or "google"
   googleId  String?    @unique
   createdAt DateTime   @default(now())
@@ -89,4 +90,29 @@ model CourseStats {
   totalSections         Int      @default(0)
   totalAvailableSeats   Int      @default(0)
   lastUpdated           DateTime @default(now())
+}
+
+model EmailLog {
+  id          String   @id @default(uuid())
+  to          String
+  subject     String
+  type        String   // "SEAT_AVAILABLE" | "PASSWORD_RESET"
+  courseCode  String?
+  sectionNum  String?
+  status      String   @default("SENT") // "SENT" | "FAILED"
+  sentAt      DateTime @default(now())
+
+  @@index([sentAt])
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  message   String
+  email     String?  // Optional - for anonymous feedback
+  name      String?  // Optional - user's name
+  userId    String?  // Optional - linked user if logged in
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
