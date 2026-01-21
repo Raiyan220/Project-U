@@ -40,7 +40,7 @@ export default function LandingPage() {
                             </span>
                         </h1>
                         <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
-                            The ultimate <span className="font-bold text-white">BRAC University Advising Assistant</span>. Track real-time Connect SLMS seat availability and get instant notifications.
+                            The ultimate <span className="font-bold text-white">BRAC University Advising Assistant</span>. Track real-time <span className="font-bold">USIS</span> and <span className="font-bold">Connect SLMS</span> seat availability with instant alerts.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">

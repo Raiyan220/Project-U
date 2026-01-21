@@ -59,9 +59,9 @@ export default function Courses() {
                         </Link>
                         <div>
                             <h1 className="text-4xl font-extrabold text-white mb-2">
-                                Course Catalog
+                                USIS / Connect Catalog
                             </h1>
-                            <p className="text-gray-300">Browse and search for available courses</p>
+                            <p className="text-gray-300">Live seat tracker for BRAC University courses</p>
                         </div>
                     </div>
 
