@@ -57,6 +57,7 @@ export class BracuService implements OnModuleInit {
   >();
   private upsertedCourses = new Set<string>(); // Cache to avoid redundant course upserts
   private isSyncing = false; // Lock to prevent concurrent syncs
+  private isFirstSync = true; // Optimization flag for startup
 
   constructor(
     private readonly httpService: HttpService,
@@ -82,7 +83,7 @@ export class BracuService implements OnModuleInit {
         enrolled: s.enrolled,
         capacity: s.capacity,
         slotCount: s._count.slots,
-        scheduleHash: 'FORCE_REFRESH', // Force signature check on first sync
+        scheduleHash: '', // Force signature check on first sync
       });
     });
     // Run initial sync with a delay to allow server to startup fully
@@ -295,8 +296,13 @@ export class BracuService implements OnModuleInit {
           }
           // Check for schedule/room changes
           if (prev.scheduleHash !== currentHash) {
-            needsUpdate = true;
-            needsSlotReset = true;
+            // Optimization: On first sync, if slots exist, assume they are correct to avoid massive DB churn
+            if (this.isFirstSync && prev.slotCount > 0) {
+              // Skip update
+            } else {
+              needsUpdate = true;
+              needsSlotReset = true;
+            }
           }
           // Force fix if we have a valid schedule but 0 slots recorded
           if (prev.slotCount === 0 && currentHash.length > 20) {
@@ -447,6 +453,9 @@ export class BracuService implements OnModuleInit {
                         });
                       }
                     }
+                  }
+                  if (str && results.length === 0) {
+                    this.logger.warn(`Failed to parse schedule: "${str}"`);
                   }
                   return results;
                 };
@@ -667,6 +676,7 @@ export class BracuService implements OnModuleInit {
       throw error;
     } finally {
       this.isSyncing = false; // Always release the lock
+      this.isFirstSync = false;
     }
   }
 
