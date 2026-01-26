@@ -315,6 +315,9 @@ export class BracuService implements OnModuleInit {
           // Store hash temporarily on the item for use in the loop
           (item as any)._currentHash = currentHash;
           sectionsToUpdate.push(item);
+          if (item.courseCode === 'CSE110' && item.sectionName === '01') {
+            this.logger.log(`DEBUG: CSE110-01 Updates - Enrolled: ${item.consumedSeat}/${item.capacity} (Prev: ${prev?.enrolled})`);
+          }
           if (needsSlotReset) {
             sectionsNeedingSlotReset.add(sectionIdStr);
           }
