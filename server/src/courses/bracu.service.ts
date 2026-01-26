@@ -85,8 +85,11 @@ export class BracuService implements OnModuleInit {
         scheduleHash: 'FORCE_REFRESH', // Force signature check on first sync
       });
     });
-    // Run initial sync asynchronously to not block startup
-    void this.syncCourses();
+    // Run initial sync with a delay to allow server to startup fully
+    this.logger.log('Scheduled initial course sync in 5 seconds...');
+    setTimeout(() => {
+      void this.syncCourses();
+    }, 5000);
   }
 
   // Sync every 30 seconds for near real-time updates (fastest safe option)
@@ -330,7 +333,7 @@ export class BracuService implements OnModuleInit {
       }
 
       // 3. Upsert Sections
-      const BATCH_SIZE = 20; // Safe to increase now as most updates are lightweight
+      const BATCH_SIZE = 10; // Reduced to 10 for better stability on low-resource environments
       for (let i = 0; i < sectionsToUpdate.length; i += BATCH_SIZE) {
         const batch = sectionsToUpdate.slice(i, i + BATCH_SIZE);
         await Promise.all(
