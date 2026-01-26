@@ -12,7 +12,9 @@ export const courseService = {
     },
 
     async getAllCourses(query?: string) {
-        const response = await api.get<Course[]>(`/courses${query ? `?q=${query}` : ''}`);
+        const timestamp = Date.now();
+        const queryString = query ? `?q=${query}&_t=${timestamp}` : `?_t=${timestamp}`;
+        const response = await api.get<Course[]>(`/courses${queryString}`);
         return response.data;
     },
 
