@@ -103,7 +103,7 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900/90 backdrop-blur-md shadow-2xl mt-4 ring-1 ring-white/10"
+            className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl mt-4 ring-1 ring-white/10"
         >
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">

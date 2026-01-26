@@ -112,7 +112,7 @@ export default function Dashboard() {
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 font-sans text-gray-100">
             {/* Header */}
-            <nav className="bg-white/10 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
+            <nav className="bg-slate-900/95 border-b border-white/10 sticky top-0 z-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <Link to="/" className="flex items-center space-x-3 group">
@@ -195,7 +195,7 @@ export default function Dashboard() {
                     transition={{ duration: 0.5 }}
                 >
                     {/* Welcome Card */}
-                    <div className="bg-white/5 backdrop-blur-sm rounded-2xl shadow-xl p-8 mb-8 border border-white/10">
+                    <div className="bg-white/5 rounded-2xl shadow-xl p-8 mb-8 border border-white/10">
                         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-3xl font-bold text-white mb-2">
@@ -363,7 +363,7 @@ export default function Dashboard() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.4 }}
-                        className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10"
+                        className="bg-white/5 rounded-2xl p-8 border border-white/10"
                     >
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                             <div>
@@ -482,7 +482,7 @@ function MyTrackedCourses() {
                     if (!track.section) return null;
 
                     return (
-                        <div key={track.id || track.sectionId} className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10 hover:border-purple-500/50 transition-all group">
+                        <div key={track.id || track.sectionId} className="bg-white/5 rounded-2xl p-6 border border-white/10 hover:border-purple-500/50 transition-all group">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-lg font-bold text-white group-hover:text-purple-400 transition-colors">
