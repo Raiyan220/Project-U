@@ -53,7 +53,7 @@ export class BracuService implements OnModuleInit {
   private readonly CONNECT_SLMS_URL = 'https://usis-cdn.eniamza.com/connect.json';
   private previousSeatData = new Map<
     string,
-    { enrolled: number; capacity: number; slotCount: number }
+    { enrolled: number; capacity: number; slotCount: number; scheduleHash: string }
   >();
   private upsertedCourses = new Set<string>(); // Cache to avoid redundant course upserts
   private isSyncing = false; // Lock to prevent concurrent syncs
@@ -82,6 +82,7 @@ export class BracuService implements OnModuleInit {
         enrolled: s.enrolled,
         capacity: s.capacity,
         slotCount: s._count.slots,
+        scheduleHash: 'FORCE_REFRESH', // Force signature check on first sync
       });
     });
     // Run initial sync asynchronously to not block startup
@@ -184,6 +185,20 @@ export class BracuService implements OnModuleInit {
     }
   }
 
+  // Generate a signature string to detect if schedule/rooms have changed
+  private getScheduleSignature(s: BracuSection): string {
+    return JSON.stringify({
+      cls: s.sectionSchedule?.classSchedules,
+      lab: s.labSchedules,
+      pr: s.preRegSchedule,
+      pl: s.preRegLabSchedule,
+      r: s.roomNumber,
+      rn: s.roomName,
+      lr: s.labRoomName,
+      ex: s.sectionSchedule?.finalExamDetail,
+    });
+  }
+
   async syncCourses() {
     // Prevent concurrent syncs
     if (this.isSyncing) {
@@ -194,7 +209,9 @@ export class BracuService implements OnModuleInit {
     this.isSyncing = true;
     this.logger.log('Starting BracU course synchronization...');
     try {
-      const response = await firstValueFrom(this.httpService.get(this.CONNECT_SLMS_URL));
+      const response = await firstValueFrom(
+        this.httpService.get(this.CONNECT_SLMS_URL),
+      );
       const sections = response.data as BracuSection[];
 
       if (!Array.isArray(sections)) {
@@ -249,33 +266,71 @@ export class BracuService implements OnModuleInit {
 
       this.logger.log('Courses upserted. Processing sections...');
 
-      // 2. Collect sections that need updates and bulk delete their slots
-      const sectionsToUpdate = sections.filter((item) => {
+      // 2. Identify changes and classify updates
+      const sectionsToUpdate: BracuSection[] = [];
+      const sectionsNeedingSlotReset = new Set<string>();
+
+      for (const item of sections) {
         const sectionIdStr = item.sectionId.toString();
         const prev = this.previousSeatData.get(sectionIdStr);
-        return (
-          !prev ||
-          prev.slotCount === 0 ||
-          prev.enrolled !== item.consumedSeat ||
-          prev.capacity !== item.capacity
-        );
-      });
+        const currentHash = this.getScheduleSignature(item);
 
-      // Bulk delete slots for all sections that need updates (HUGE performance gain)
-      if (sectionsToUpdate.length > 0) {
-        const sectionIdsToDelete = sectionsToUpdate.map((s) =>
-          s.sectionId.toString(),
-        );
-        await this.prisma.roomSlot.deleteMany({
-          where: { sectionId: { in: sectionIdsToDelete } },
-        });
+        let needsUpdate = false;
+        let needsSlotReset = false;
+
+        if (!prev) {
+          // New section found
+          needsUpdate = true;
+          needsSlotReset = true;
+        } else {
+          // Check for seat changes
+          if (
+            prev.enrolled !== item.consumedSeat ||
+            prev.capacity !== item.capacity
+          ) {
+            needsUpdate = true;
+          }
+          // Check for schedule/room changes
+          if (prev.scheduleHash !== currentHash) {
+            needsUpdate = true;
+            needsSlotReset = true;
+          }
+          // Force fix if we have a valid schedule but 0 slots recorded
+          if (prev.slotCount === 0 && currentHash.length > 20) {
+            needsUpdate = true;
+            needsSlotReset = true;
+          }
+        }
+
+        if (needsUpdate) {
+          // Store hash temporarily on the item for use in the loop
+          (item as any)._currentHash = currentHash;
+          sectionsToUpdate.push(item);
+          if (needsSlotReset) {
+            sectionsNeedingSlotReset.add(sectionIdStr);
+          }
+        }
+      }
+
+      // Bulk delete slots ONLY for sections that need slot reset (schedule changed)
+      // This is a massive optimization: we don't delete slots if only seats changed.
+      if (sectionsNeedingSlotReset.size > 0) {
+        const sectionIdsToDelete = Array.from(sectionsNeedingSlotReset);
+        // Process deletions in chunks to avoid "too many parameters" error if huge
+        const DELETE_CHUNK_SIZE = 2000;
+        for (let i = 0; i < sectionIdsToDelete.length; i += DELETE_CHUNK_SIZE) {
+          const chunk = sectionIdsToDelete.slice(i, i + DELETE_CHUNK_SIZE);
+          await this.prisma.roomSlot.deleteMany({
+            where: { sectionId: { in: chunk } },
+          });
+        }
         this.logger.log(
-          `Bulk deleted slots for ${sectionsToUpdate.length} sections`,
+          `Refreshed slots for ${sectionsNeedingSlotReset.size} sections (Schedule/Room changed)`,
         );
       }
 
       // 3. Upsert Sections
-      const BATCH_SIZE = 100; // Increased from 20 for better performance
+      const BATCH_SIZE = 20; // Safe to increase now as most updates are lightweight
       for (let i = 0; i < sectionsToUpdate.length; i += BATCH_SIZE) {
         const batch = sectionsToUpdate.slice(i, i + BATCH_SIZE);
         await Promise.all(
@@ -285,8 +340,9 @@ export class BracuService implements OnModuleInit {
 
             try {
               const sectionIdStr = item.sectionId.toString();
+              const needsSlotReset = sectionsNeedingSlotReset.has(sectionIdStr);
 
-              // Upsert Section
+              // Upsert Section (Always update basic info + stats)
               await this.prisma.section.upsert({
                 where: { id: sectionIdStr },
                 update: {
@@ -316,155 +372,115 @@ export class BracuService implements OnModuleInit {
                 },
               });
 
-              // Parse and collect slot data (slots already deleted in bulk above)
+              let totalSlotsCreated = 0;
 
-              const parseTime12h = (time12h: string): number => {
-                if (!time12h) return 0;
-                // Handle formats like "3:30 PM", "3:30PM", "03:30 PM"
-                const cleaned = time12h.trim().replace(/\s+/g, ' ');
-                const match = cleaned.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-                if (!match) return 0;
-                let h = parseInt(match[1], 10);
-                const m = match[2];
-                const ampm = match[3].toUpperCase();
-                if (ampm === 'PM' && h < 12) h += 12;
-                if (ampm === 'AM' && h === 12) h = 0;
-                return parseInt(
-                  `${h.toString().padStart(2, '0')}${m.padStart(2, '0')}`,
-                  10,
-                );
-              };
+              // ONLY recreate slots if explicitly needed (Schedule changed)
+              if (needsSlotReset) {
+                // Parse and collect slot data
 
-              const parseTime24 = (timeStr: string): number => {
-                if (!timeStr) return 0;
-                const parts = timeStr.split(':');
-                return parseInt(
-                  `${parts[0].padStart(2, '0')}${parts[1].padStart(2, '0')}`,
-                  10,
-                );
-              };
+                const parseTime12h = (time12h: string): number => {
+                  if (!time12h) return 0;
+                  // Handle formats like "3:30 PM", "3:30PM", "03:30 PM"
+                  const cleaned = time12h.trim().replace(/\s+/g, ' ');
+                  const match = cleaned.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+                  if (!match) return 0;
+                  let h = parseInt(match[1], 10);
+                  const m = match[2];
+                  const ampm = match[3].toUpperCase();
+                  if (ampm === 'PM' && h < 12) h += 12;
+                  if (ampm === 'AM' && h === 12) h = 0;
+                  return parseInt(
+                    `${h.toString().padStart(2, '0')}${m.padStart(2, '0')}`,
+                    10,
+                  );
+                };
 
-              // Helper to parse "DAY(TIME-TIME-ROOM)" format
-              // Example: "MONDAY(3:30 PM-4:50 PM-10A-04C)"
-              const parseScheduleString = (
-                str: string,
-                type: 'CLASS' | 'LAB',
-              ) => {
-                if (!str) return [];
-                const lines = str
-                  .split(/[\r\n]+/)
-                  .filter((line) => line.trim());
-                const results: any[] = [];
-
-                for (const line of lines) {
-                  // Match: DAY(content)
-                  const match = line.match(/^([A-Z]+)\s*\(([^)]+)\)$/i);
-                  if (match) {
-                    const day = match[1].toUpperCase();
-                    const content = match[2];
-
-                    // Use regex to extract times with AM/PM and the room
-                    // Format: "3:30 PM-4:50 PM-10A-04C"
-                    // Fixed: [AP]M instead of [APM]{2}
-                    const timeMatch = content.match(
-                      /(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+)/i,
+                const parseTime24 = (timeStr: string): number => {
+                  if (!timeStr) return 0;
+                  try {
+                    const parts = timeStr.split(':');
+                    if (parts.length < 2) return 0;
+                    return parseInt(
+                      `${parts[0].trim().padStart(2, '0')}${parts[1].trim().padStart(2, '0')}`,
+                      10,
                     );
+                  } catch (e) {
+                    return 0; // Fallback
+                  }
+                };
 
-                    if (timeMatch) {
-                      results.push({
-                        day,
-                        startTime: parseTime12h(timeMatch[1]),
-                        endTime: parseTime12h(timeMatch[2]),
-                        roomNumber: timeMatch[3].trim() || 'TBA',
-                        type,
-                      });
+                // Helper to parse "DAY(TIME-TIME-ROOM)" format
+                const parseScheduleString = (
+                  str: string,
+                  type: 'CLASS' | 'LAB',
+                ) => {
+                  if (!str || str === 'TBA') return [];
+                  const lines = str
+                    .split(/[\r\n]+/)
+                    .filter((line) => line.trim());
+                  const results: any[] = [];
+
+                  for (const line of lines) {
+                    // Match "DAY (TIME - TIME - ROOM)"
+                    // Handles standard dash (-), en-dash (–), and em-dash (—)
+                    const match = line.match(/^([A-Z]+)\s*\(([^)]+)\)$/i);
+                    if (match) {
+                      const day = match[1].toUpperCase();
+                      const content = match[2];
+
+                      // Regex to find "Time - Time - Room"
+                      // Supports 12h format (AM/PM) and various dash separators
+                      const timeMatch = content.match(
+                        /(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—]\s*(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—]\s*(.+)/i,
+                      );
+
+                      if (timeMatch) {
+                        results.push({
+                          day,
+                          startTime: parseTime12h(timeMatch[1]),
+                          endTime: parseTime12h(timeMatch[2]),
+                          roomNumber: timeMatch[3].trim() || 'TBA',
+                          type,
+                        });
+                      }
                     }
                   }
+                  return results;
+                };
+
+                const slotsToCreate: any[] = [];
+
+                // 1. Process Class Slots
+                let classSlotsProcessed = false;
+                const classSlotsFromStr = parseScheduleString(
+                  item.preRegSchedule || '',
+                  'CLASS',
+                );
+                if (classSlotsFromStr.length > 0) {
+                  for (const slot of classSlotsFromStr) {
+                    const roomStr = slot.roomNumber || 'TBA';
+                    const floorMatch = roomStr.match(/^([^-]+)/);
+                    const floorCode = floorMatch ? floorMatch[1] : 'UB';
+                    slotsToCreate.push({
+                      day: slot.day,
+                      startTime: slot.startTime,
+                      endTime: slot.endTime,
+                      roomNumber: roomStr,
+                      building: floorCode,
+                      type: 'CLASS',
+                      sectionId: item.sectionId.toString(),
+                    });
+                  }
+                  classSlotsProcessed = true;
                 }
-                return results;
-              };
 
-              // Collect all slots to create in bulk
-              const slotsToCreate: any[] = [];
-
-              // 1. Process Class Slots
-              let classSlotsProcessed = false;
-              const classSlotsFromStr = parseScheduleString(
-                item.preRegSchedule || '',
-                'CLASS',
-              );
-              if (classSlotsFromStr.length > 0) {
-                for (const slot of classSlotsFromStr) {
-                  const roomStr = slot.roomNumber || 'TBA';
-                  const floorMatch = roomStr.match(/^([^-]+)/);
-                  const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                  slotsToCreate.push({
-                    day: slot.day,
-                    startTime: slot.startTime,
-                    endTime: slot.endTime,
-                    roomNumber: roomStr,
-                    building: floorCode,
-                    type: 'CLASS',
-                    sectionId: item.sectionId.toString(),
-                  });
-                }
-                classSlotsProcessed = true;
-              }
-
-              if (
-                !classSlotsProcessed &&
-                item.sectionSchedule?.classSchedules
-              ) {
-                for (const slot of item.sectionSchedule.classSchedules) {
-                  const roomStr =
-                    slot.roomNo || item.roomNumber || item.roomName || 'TBA';
-                  const floorMatch = roomStr.match(/^([^-]+)/);
-                  const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                  slotsToCreate.push({
-                    day: slot.day,
-                    startTime: parseTime24(slot.startTime),
-                    endTime: parseTime24(slot.endTime),
-                    roomNumber: roomStr,
-                    building: floorCode,
-                    type: 'CLASS',
-                    sectionId: item.sectionId.toString(),
-                  });
-                }
-              }
-
-              // 2. Process Lab Slots
-              let labSlotsProcessed = false;
-              const labSlotsFromStr = parseScheduleString(
-                item.preRegLabSchedule || '',
-                'LAB',
-              );
-              if (labSlotsFromStr.length > 0) {
-                for (const slot of labSlotsFromStr) {
-                  const roomStr = slot.roomNumber || 'TBA';
-                  const floorMatch = roomStr.match(/^([^-]+)/);
-                  const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                  slotsToCreate.push({
-                    day: slot.day,
-                    startTime: slot.startTime,
-                    endTime: slot.endTime,
-                    roomNumber: roomStr,
-                    building: floorCode,
-                    type: 'LAB',
-                    sectionId: item.sectionId.toString(),
-                  });
-                }
-                labSlotsProcessed = true;
-              }
-
-              // Fallback to labSchedules or labRoomName if string parsing yielded nothing
-              if (
-                !labSlotsProcessed &&
-                (item.labSchedules || item.labRoomName)
-              ) {
-                if (item.labSchedules && item.labSchedules.length > 0) {
-                  for (const slot of item.labSchedules) {
+                if (
+                  !classSlotsProcessed &&
+                  item.sectionSchedule?.classSchedules
+                ) {
+                  for (const slot of item.sectionSchedule.classSchedules) {
                     const roomStr =
-                      slot.roomNo || item.labRoomName || item.roomName || 'TBA';
+                      slot.roomNo || item.roomNumber || item.roomName || 'TBA';
                     const floorMatch = roomStr.match(/^([^-]+)/);
                     const floorCode = floorMatch ? floorMatch[1] : 'UB';
                     slotsToCreate.push({
@@ -473,38 +489,79 @@ export class BracuService implements OnModuleInit {
                       endTime: parseTime24(slot.endTime),
                       roomNumber: roomStr,
                       building: floorCode,
-                      type: 'LAB',
+                      type: 'CLASS',
                       sectionId: item.sectionId.toString(),
                     });
                   }
                 }
-              }
 
-              // Bulk create all slots at once (HUGE performance improvement)
-              // Deduplicate slots before insertion to prevent DB duplicates
-              if (slotsToCreate.length > 0) {
-                const dedupMap = new Map<string, any>();
-                slotsToCreate.forEach((slot) => {
-                  const key = `${slot.sectionId}-${slot.day}-${slot.startTime}-${slot.endTime}-${slot.roomNumber}-${slot.type}`;
-                  if (!dedupMap.has(key)) {
-                    dedupMap.set(key, slot);
-                  }
-                });
-
-                const uniqueSlots = Array.from(dedupMap.values());
-                this.logger.debug(
-                  `Section ${item.sectionId}: ${slotsToCreate.length} slots -> ${uniqueSlots.length} unique`,
+                // 2. Process Lab Slots
+                let labSlotsProcessed = false;
+                const labSlotsFromStr = parseScheduleString(
+                  item.preRegLabSchedule || '',
+                  'LAB',
                 );
+                if (labSlotsFromStr.length > 0) {
+                  for (const slot of labSlotsFromStr) {
+                    const roomStr = slot.roomNumber || 'TBA';
+                    const floorMatch = roomStr.match(/^([^-]+)/);
+                    const floorCode = floorMatch ? floorMatch[1] : 'UB';
+                    slotsToCreate.push({
+                      day: slot.day,
+                      startTime: slot.startTime,
+                      endTime: slot.endTime,
+                      roomNumber: roomStr,
+                      building: floorCode,
+                      type: 'LAB',
+                      sectionId: item.sectionId.toString(),
+                    });
+                  }
+                  labSlotsProcessed = true;
+                }
 
-                await this.prisma.roomSlot.createMany({
-                  data: uniqueSlots,
-                  skipDuplicates: true,
-                });
+                if (
+                  !labSlotsProcessed &&
+                  (item.labSchedules || item.labRoomName)
+                ) {
+                  if (item.labSchedules && item.labSchedules.length > 0) {
+                    for (const slot of item.labSchedules) {
+                      const roomStr =
+                        slot.roomNo || item.labRoomName || item.roomName || 'TBA';
+                      const floorMatch = roomStr.match(/^([^-]+)/);
+                      const floorCode = floorMatch ? floorMatch[1] : 'UB';
+                      slotsToCreate.push({
+                        day: slot.day,
+                        startTime: parseTime24(slot.startTime),
+                        endTime: parseTime24(slot.endTime),
+                        roomNumber: roomStr,
+                        building: floorCode,
+                        type: 'LAB',
+                        sectionId: item.sectionId.toString(),
+                      });
+                    }
+                  }
+                }
+
+                // Bulk create slots
+                if (slotsToCreate.length > 0) {
+                  const dedupMap = new Map<string, any>();
+                  slotsToCreate.forEach((slot) => {
+                    const key = `${slot.sectionId}-${slot.day}-${slot.startTime}-${slot.endTime}-${slot.roomNumber}-${slot.type}`;
+                    if (!dedupMap.has(key)) {
+                      dedupMap.set(key, slot);
+                    }
+                  });
+
+                  const uniqueSlots = Array.from(dedupMap.values());
+                  await this.prisma.roomSlot.createMany({
+                    data: uniqueSlots,
+                    skipDuplicates: true,
+                  });
+                  totalSlotsCreated = uniqueSlots.length;
+                }
               }
 
-              const totalSlotsCreated = slotsToCreate.length;
-
-              // Mark as processed to ensure cache is updated with correct slotCount
+              // Update processing metadata
               (item as any)._slotCount = totalSlotsCreated;
               (item as any)._processed = true;
             } catch (err) {
@@ -532,13 +589,20 @@ export class BracuService implements OnModuleInit {
         const prevData = this.previousSeatData.get(sectionId);
         const newEnrolled = item.consumedSeat;
         const newCapacity = item.capacity;
+        const currentHash =
+          (item as any)._currentHash || this.getScheduleSignature(item);
 
-        // Check if seat data changed
+        const slotCount = (item as any)._processed
+          ? (item as any)._slotCount
+          : prevData?.slotCount || 0;
+
+        // Check if seat data changed OR schedule changed
         if (
           !prevData ||
           prevData.enrolled !== newEnrolled ||
           prevData.capacity !== newCapacity ||
-          prevData.slotCount === 0
+          prevData.slotCount === 0 ||
+          prevData.scheduleHash !== currentHash
         ) {
           seatUpdates.push({
             sectionId,
@@ -554,14 +618,11 @@ export class BracuService implements OnModuleInit {
           this.previousSeatData.set(sectionId, {
             enrolled: newEnrolled,
             capacity: newCapacity,
-            slotCount: (item as any)._processed
-              ? (item as any)._slotCount
-              : prevData?.slotCount || 0,
+            slotCount: slotCount,
+            scheduleHash: currentHash,
           });
 
           // NEW: Notification Logic
-          // Trigger email if there are available seats.
-          // The handleSeatOpening method will handle the 5-minute cooldown per user.
           const newAvailable = Math.max(0, newCapacity - newEnrolled);
 
           if (newAvailable > 0) {
@@ -677,7 +738,9 @@ export class BracuService implements OnModuleInit {
             )
             .then(() => {
               // Update last notified time
-              this.trackingService.updateLastNotified(track.id).catch(() => { });
+              this.trackingService
+                .updateLastNotified(track.id)
+                .catch(() => { });
             })
             .catch((err) => {
               const msg = err instanceof Error ? err.message : String(err);
@@ -691,11 +754,6 @@ export class BracuService implements OnModuleInit {
           );
         }
       }
-
-      // Optional: Mark tracks as inactive?
-      // User might want to be notified every time it opens, or just once.
-      // Usually "one-shot" is better to avoid spamming.
-      // Let's stick to notifying as long as they track it for now.
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -704,4 +762,6 @@ export class BracuService implements OnModuleInit {
       );
     }
   }
+
+
 }
