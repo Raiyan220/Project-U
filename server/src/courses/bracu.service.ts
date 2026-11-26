@@ -257,6 +257,55 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Remove sections (and their slots/trackings) that no longer exist in the active semester feed.
+   */
+  private async purgeStaleSections(sections: BracuSection[]) {
+    const activeSet = new Set(sections.map((s) => s.sectionId.toString()));
+    const dbSections = await this.prisma.section.findMany({
+      select: { id: true },
+    });
+    const staleIds = dbSections
+      .map((s) => s.id)
+      .filter((id) => !activeSet.has(id));
+
+    if (staleIds.length === 0) return;
+
+    this.logger.log(
+      `Purging ${staleIds.length} stale sections from previous semesters...`,
+    );
+
+    const CHUNK_SIZE = 1000;
+    for (let i = 0; i < staleIds.length; i += CHUNK_SIZE) {
+      const chunk = staleIds.slice(i, i + CHUNK_SIZE);
+      await this.prisma.tracking.deleteMany({
+        where: { sectionId: { in: chunk } },
+      });
+      await this.prisma.roomSlot.deleteMany({
+        where: { sectionId: { in: chunk } },
+      });
+      await this.prisma.section.deleteMany({
+        where: { id: { in: chunk } },
+      });
+      chunk.forEach((id) => this.previousSeatData.delete(id));
+    }
+
+    // Clean up orphaned slots and courses with no remaining sections
+    await this.prisma.roomSlot.deleteMany({
+      where: { sectionId: null },
+    });
+    const deletedCourses = await this.prisma.course.deleteMany({
+      where: { sections: { none: {} } },
+    });
+    if (deletedCourses.count > 0) {
+      this.courseCodeToIdCache.clear();
+    }
+
+    this.logger.log(
+      `Purged ${staleIds.length} stale sections and ${deletedCourses.count} empty courses.`,
+    );
+  }
+
   // Generate a signature string to detect if schedule/rooms have changed
   private getScheduleSignature(s: BracuSection): string {
     return JSON.stringify({
@@ -294,6 +343,11 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.logger.log(`Fetched ${sections.length} sections. Processing...`);
+
+      // 0. Remove stale sections & slots from previous semesters (guarded against partial feeds)
+      if (sections.length >= 500) {
+        await this.purgeStaleSections(sections);
+      }
 
       // 1. Extract and Upsert All Courses First (Prevent Race Conditions)
       const uniqueCourses = new Set<string>();

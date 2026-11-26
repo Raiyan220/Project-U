@@ -20,6 +20,9 @@ export class CoursesService {
           select: { sections: true },
         },
       },
+      orderBy: {
+        code: 'asc',
+      },
       take: 20, // Limit initial load for performance
     });
   }
@@ -31,6 +34,9 @@ export class CoursesService {
         sections: {
           include: {
             slots: true,
+          },
+          orderBy: {
+            sectionNumber: 'asc',
           },
         },
       },
@@ -57,6 +63,9 @@ export class CoursesService {
         _count: {
           select: { sections: true },
         },
+      },
+      orderBy: {
+        code: 'asc',
       },
     });
   }
