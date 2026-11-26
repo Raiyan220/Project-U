@@ -59,7 +59,7 @@ export default function LandingPage() {
                         </div>
 
                         {/* Features */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mt-12">
                             <Link to="/courses" className="block">
                                 <motion.div
                                     initial={{ opacity: 0, y: 20 }}
@@ -83,7 +83,7 @@ export default function LandingPage() {
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: 0.3 }}
-                                className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20"
+                                className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20 h-full"
                             >
                                 <div className="w-12 h-12 bg-purple-400 rounded-lg flex items-center justify-center mx-auto mb-4">
                                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,7 +92,7 @@ export default function LandingPage() {
                                 </div>
                                 <h3 className="text-white font-bold text-lg mb-2">Instant Notifications</h3>
                                 <p className="text-white/80 text-sm">
-                                    Get email alerts the moment your target section opens up
+                                    Get browser push &amp; email alerts the moment a section opens
                                 </p>
                             </motion.div>
 
@@ -110,7 +110,29 @@ export default function LandingPage() {
                                     </div>
                                     <h3 className="text-white font-bold text-lg mb-2">Empty Room Finder</h3>
                                     <p className="text-white/80 text-sm">
-                                        Discover available study spaces across campus in real-time
+                                        Discover free study rooms in Main &amp; ANNEX buildings in real-time
+                                    </p>
+                                </motion.div>
+                            </Link>
+
+                            <Link to="/cgpa-calculator" className="block">
+                                <motion.div
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.5 }}
+                                    className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-amber-300/30 h-full hover:bg-white/20 transition-colors cursor-pointer relative"
+                                >
+                                    <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-200 text-[10px] font-extrabold uppercase">
+                                        AI Powered
+                                    </span>
+                                    <div className="w-12 h-12 bg-amber-400 rounded-lg flex items-center justify-center mx-auto mb-4">
+                                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-white font-bold text-lg mb-2">AI CGPA Mentor</h3>
+                                    <p className="text-white/80 text-sm">
+                                        Plan your target CGPA, check feasibility, and chat for retake advice
                                     </p>
                                 </motion.div>
                             </Link>
