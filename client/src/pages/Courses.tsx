@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,13 +10,40 @@ import type { Course } from '../types/course';
 
 export default function Courses() {
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
     const queryClient = useQueryClient();
     const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
-    // Real-time seat updates via WebSocket
-    const handleSeatUpdate = useCallback(() => {
-        // Invalidate queries to refetch updated data
-        queryClient.invalidateQueries({ queryKey: ['courses'] });
+    // Debounce search input to avoid firing a DB query on every keystroke
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 250);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    // Real-time seat updates via WebSocket — patch React Query cache in-place (0ms)
+    const handleSeatUpdate = useCallback((updates: {
+        sectionId: string;
+        enrolled: number;
+        capacity: number;
+        status: string;
+    }[]) => {
+        const updateMap = new Map(updates.map((u) => [u.sectionId, u]));
+        queryClient.setQueriesData<Course[]>({ queryKey: ['courses'] }, (oldCourses) => {
+            if (!oldCourses) return oldCourses;
+            return oldCourses.map((course) => ({
+                ...course,
+                sections: course.sections?.map((sec) => {
+                    const u = updateMap.get(sec.id);
+                    if (!u) return sec;
+                    return {
+                        ...sec,
+                        enrolled: u.enrolled,
+                        capacity: u.capacity,
+                        status: (u.status === 'CLOSED' ? 'CLOSED' : 'OPEN') as 'OPEN' | 'CLOSED',
+                    };
+                }),
+            }));
+        });
         setLastUpdateTime(new Date());
     }, [queryClient]);
 
@@ -33,10 +60,10 @@ export default function Courses() {
     });
 
     const { data: courses, isLoading, isError, isFetching } = useQuery({
-        queryKey: ['courses', searchQuery],
+        queryKey: ['courses', debouncedQuery],
         queryKeyHashFn: (queryKey) => JSON.stringify(queryKey),
-        queryFn: () => courseService.getAllCourses(searchQuery),
-        // WebSocket provides real-time updates, no polling needed
+        queryFn: () => courseService.getAllCourses(debouncedQuery),
+        staleTime: 30_000,
     });
 
     const formatLastUpdate = () => {

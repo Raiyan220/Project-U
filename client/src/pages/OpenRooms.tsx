@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../lib/axios';
 import {
     MapPin,
     Clock,
@@ -41,8 +41,8 @@ const OpenRooms: React.FC = () => {
             try {
                 setLoading(true);
                 const [buildingsRes, roomsRes] = await Promise.all([
-                    axios.get(`${import.meta.env.VITE_API_URL}/rooms/buildings`),
-                    axios.get(`${import.meta.env.VITE_API_URL}/rooms/available`)
+                    api.get('/rooms/buildings'),
+                    api.get('/rooms/available')
                 ]);
                 setBuildings(buildingsRes.data);
                 setRooms(roomsRes.data);
@@ -60,7 +60,7 @@ const OpenRooms: React.FC = () => {
     const fetchRooms = async (building: string) => {
         try {
             setLoading(true);
-            const res = await axios.get(`${import.meta.env.VITE_API_URL}/rooms/available`, {
+            const res = await api.get('/rooms/available', {
                 params: { building }
             });
             setRooms(res.data);
