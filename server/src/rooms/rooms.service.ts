@@ -120,39 +120,63 @@ export class RoomsService {
     // 1. Get all known rooms (from cache)
     const { rooms } = await this.getCachedData();
     const timeInMins = this.toMinutes(time);
+    const normalizedFloor = floor?.toUpperCase();
 
     let targetRooms = rooms;
-    if (floor === 'ANNEX') {
+    if (normalizedFloor === 'MAIN') {
+      targetRooms = rooms.filter((r) => !/^AN/i.test(r.building));
+    } else if (normalizedFloor === 'ANNEX') {
       targetRooms = rooms.filter((r) => /^AN/i.test(r.building));
-    } else if (floor === 'AS') {
+    } else if (/^AN[0-9G]+$/i.test(normalizedFloor || '')) {
+      targetRooms = rooms.filter(
+        (r) => r.building.toUpperCase() === normalizedFloor,
+      );
+    } else if (normalizedFloor === 'AS') {
       targetRooms = rooms.filter((r) => /^AS/i.test(r.building));
-    } else if (floor === 'UB') {
+    } else if (normalizedFloor === 'UB') {
       targetRooms = rooms.filter(
         (r) => r.building === 'UB' || r.building === 'TBA',
       );
-    } else if (floor) {
+    } else if (normalizedFloor) {
       // Filter by numeric floor prefix (e.g., floor "7" matches buildings "07A", "07B", "7A", "7B", etc.)
-      const floorNum = parseInt(floor, 10);
+      const floorNum = parseInt(normalizedFloor, 10);
       targetRooms = rooms.filter((r) => {
         const roomFloor = this.extractFloor(r.building);
-        return roomFloor !== null && /^\d+$/.test(roomFloor) && parseInt(roomFloor, 10) === floorNum;
+        return (
+          roomFloor !== null &&
+          /^\d+$/.test(roomFloor) &&
+          parseInt(roomFloor, 10) === floorNum
+        );
       });
     }
 
-    // 2. Find currently occupied rooms and their classes
-    // Build the building filter based on floor
+    // University operates 08:00 AM (0800) to 08:20 PM (2020); outside those hours every room is free
+    const isUniversityClosed = time < 800 || time >= 2020;
+    if (isUniversityClosed) {
+      return targetRooms.map((room) => ({
+        ...room,
+        status: 'FREE' as const,
+        freeUntil: null,
+        freeMinutes: 720,
+      }));
+    }
+
+    // 2. Build the building filter based on floor/building selection
     let buildingFilter: any = {};
-    if (floor === 'ANNEX') {
+    if (normalizedFloor === 'MAIN') {
+      buildingFilter = { NOT: { building: { startsWith: 'AN' } } };
+    } else if (normalizedFloor === 'ANNEX') {
       buildingFilter = { building: { startsWith: 'AN' } };
-    } else if (floor === 'AS') {
+    } else if (/^AN[0-9G]+$/i.test(normalizedFloor || '')) {
+      buildingFilter = { building: normalizedFloor };
+    } else if (normalizedFloor === 'AS') {
       buildingFilter = { building: { startsWith: 'AS' } };
-    } else if (floor === 'UB') {
+    } else if (normalizedFloor === 'UB') {
       buildingFilter = {
         OR: [{ building: 'UB' }, { building: 'TBA' }],
       };
-    } else if (floor) {
-      const floorNum = parseInt(floor, 10);
-      // Match buildings that start with the floor number (with or without leading zero)
+    } else if (normalizedFloor) {
+      const floorNum = parseInt(normalizedFloor, 10);
       const paddedFloor = floorNum.toString().padStart(2, '0');
       buildingFilter = {
         OR: [
@@ -162,44 +186,45 @@ export class RoomsService {
       };
     }
 
-    const occupiedSlots = await this.prisma.roomSlot.findMany({
-      where: {
-        day: day.toUpperCase(),
-        startTime: { lte: time },
-        endTime: { gt: time },
-        ...(floor ? buildingFilter : {}),
-      },
-      select: {
-        roomNumber: true,
-        building: true,
-        endTime: true,
-        section: {
-          select: {
-            course: { select: { code: true } },
-            sectionNumber: true
-          }
-        }
-      },
-    });
+    // Run occupied and future slot queries in parallel for faster response
+    const [occupiedSlots, futureSlots] = await Promise.all([
+      this.prisma.roomSlot.findMany({
+        where: {
+          day: day.toUpperCase(),
+          startTime: { lte: time },
+          endTime: { gt: time },
+          ...(normalizedFloor ? buildingFilter : {}),
+        },
+        select: {
+          roomNumber: true,
+          building: true,
+          endTime: true,
+          section: {
+            select: {
+              course: { select: { code: true } },
+              sectionNumber: true,
+            },
+          },
+        },
+      }),
+      this.prisma.roomSlot.findMany({
+        where: {
+          day: day.toUpperCase(),
+          startTime: { gt: time }, // Starts AFTER now
+          ...(normalizedFloor ? buildingFilter : {}),
+        },
+        select: {
+          roomNumber: true,
+          building: true,
+          startTime: true,
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+    ]);
 
     const occupiedMap = new Map<string, any>();
-    occupiedSlots.forEach(s => {
+    occupiedSlots.forEach((s) => {
       occupiedMap.set(`${s.building}-${s.roomNumber}`, s);
-    });
-
-    // 3. Find future slots to calculate next class start
-    const futureSlots = await this.prisma.roomSlot.findMany({
-      where: {
-        day: day.toUpperCase(),
-        startTime: { gt: time }, // Starts AFTER now
-        ...(floor ? buildingFilter : {}),
-      },
-      select: {
-        roomNumber: true,
-        building: true,
-        startTime: true,
-      },
-      orderBy: { startTime: 'asc' },
     });
 
     // Map next class time per room
@@ -212,7 +237,7 @@ export class RoomsService {
     }
 
     // 4. Combine data for all target rooms
-    const END_OF_DAY_MINS = 18 * 60 + 20; // 6:20 PM university hours end
+    const END_OF_DAY_MINS = 20 * 60 + 20; // 8:20 PM latest Fall '26 class end time
     const result = targetRooms.map((room) => {
       const key = `${room.building}-${room.roomNumber}`;
       const occupied = occupiedMap.get(key);
