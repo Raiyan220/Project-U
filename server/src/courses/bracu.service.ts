@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  OnModuleDestroy,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { TrackingService } from './tracking.service';
 
 interface BracuSection {
   courseCode: string;
+  courseName?: string;
   academicDegree: string;
   sectionId: number;
   sectionName: string;
@@ -47,17 +49,38 @@ interface BracuSection {
   preRegLabSchedule: string | null;
 }
 
+interface ConnectMigrateResponse {
+  metadata?: {
+    currentSemester?: string;
+    lastUpdated?: string;
+    totalSections?: number;
+    totalUniqueCourses?: number;
+    totalLabs?: number;
+  };
+  courses: BracuSection[];
+}
+
+interface MercureSeatPayload {
+  timestamp?: string;
+  seatStatus?: Record<string, string | number>;
+}
+
 @Injectable()
-export class BracuService implements OnModuleInit {
+export class BracuService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BracuService.name);
-  private readonly CONNECT_SLMS_URL = 'https://usis-cdn.eniamza.com/connect.json';
+  private readonly CONNECT_SLMS_URL =
+    'https://usis-cdn.eniamza.com/connect-migrate.json';
+  private readonly MERCURE_URL =
+    'https://mercure.eniamza.com/.well-known/mercure?topic=seatstatus';
   private previousSeatData = new Map<
     string,
     { enrolled: number; capacity: number; slotCount: number; scheduleHash: string }
   >();
-  private upsertedCourses = new Set<string>(); // Cache to avoid redundant course upserts
+  private courseCodeToIdCache = new Map<string, string>(); // Cache courseCode -> courseId
   private isSyncing = false; // Lock to prevent concurrent syncs
   private isFirstSync = true; // Optimization flag for startup
+  private mercureAbortController: AbortController | null = null;
+  private isShuttingDown = false;
 
   constructor(
     private readonly httpService: HttpService,
@@ -91,6 +114,13 @@ export class BracuService implements OnModuleInit {
     setTimeout(() => {
       void this.syncCourses();
     }, 5000);
+    // Subscribe to Mercure SSE for instant real-time seat updates
+    void this.startMercureStream();
+  }
+
+  onModuleDestroy() {
+    this.isShuttingDown = true;
+    this.mercureAbortController?.abort();
   }
 
   // Sync every 30 seconds for near real-time updates (fastest safe option)
@@ -214,9 +244,12 @@ export class BracuService implements OnModuleInit {
     this.logger.log('Starting BracU course synchronization...');
     try {
       const response = await firstValueFrom(
-        this.httpService.get(this.CONNECT_SLMS_URL),
+        this.httpService.get<ConnectMigrateResponse | BracuSection[]>(
+          this.CONNECT_SLMS_URL,
+        ),
       );
-      const sections = response.data as BracuSection[];
+      const rawData = response.data;
+      const sections = Array.isArray(rawData) ? rawData : rawData?.courses;
 
       if (!Array.isArray(sections)) {
         throw new Error('Invalid data format from CDN');
@@ -232,7 +265,7 @@ export class BracuService implements OnModuleInit {
         uniqueCourses.add(s.courseCode);
         if (!courseDetails.has(s.courseCode)) {
           courseDetails.set(s.courseCode, {
-            title: s.courseCode,
+            title: s.courseName || s.courseCode,
             dept: s.academicDegree,
           });
         }
@@ -244,8 +277,11 @@ export class BracuService implements OnModuleInit {
       const courseCodeToIdMap = new Map<string, string>();
 
       for (const code of uniqueCourses) {
-        // Only upsert if not already cached in this session
-        if (this.upsertedCourses.has(code)) continue;
+        const cachedId = this.courseCodeToIdCache.get(code);
+        if (cachedId) {
+          courseCodeToIdMap.set(code, cachedId);
+          continue;
+        }
 
         const details = courseDetails.get(code);
         try {
@@ -262,7 +298,7 @@ export class BracuService implements OnModuleInit {
             },
           });
           courseCodeToIdMap.set(code, course.id);
-          this.upsertedCourses.add(code); // Mark as done
+          this.courseCodeToIdCache.set(code, course.id);
         } catch (e) {
           this.logger.error(`Failed to upsert course ${code}: ${e}`);
         }
@@ -779,5 +815,159 @@ export class BracuService implements OnModuleInit {
     }
   }
 
+  /**
+   * Subscribe to Eniamza's Mercure SSE stream for instant seat-status updates.
+   * Reconnects automatically with exponential backoff on disconnect or error.
+   */
+  private async startMercureStream() {
+    let backoffMs = 2000;
 
+    while (!this.isShuttingDown) {
+      this.mercureAbortController = new AbortController();
+      try {
+        this.logger.log(`Connecting to Mercure SSE stream: ${this.MERCURE_URL}`);
+        const response = await fetch(this.MERCURE_URL, {
+          headers: { Accept: 'text/event-stream' },
+          signal: this.mercureAbortController.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Mercure HTTP ${response.status}`);
+        }
+
+        backoffMs = 2000;
+        this.logger.log('Connected to Mercure SSE seatstatus stream');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!this.isShuttingDown) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split(/\r?\n\r?\n/);
+          buffer = frames.pop() ?? '';
+
+          for (const frame of frames) {
+            const dataLines = frame
+              .split(/\r?\n/)
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart());
+
+            if (dataLines.length === 0) continue;
+
+            try {
+              const payload = JSON.parse(dataLines.join('\n')) as MercureSeatPayload;
+              if (payload?.seatStatus && Object.keys(payload.seatStatus).length > 0) {
+                await this.handleMercureSeatStatus(payload.seatStatus);
+              }
+            } catch (parseErr) {
+              this.logger.warn(
+                `Failed to parse Mercure SSE payload: ${(parseErr as Error).message}`,
+              );
+            }
+          }
+        }
+      } catch (err) {
+        if (this.isShuttingDown) break;
+        this.logger.warn(
+          `Mercure SSE stream disconnected (${(err as Error).message}), reconnecting in ${backoffMs}ms...`,
+        );
+      }
+
+      if (this.isShuttingDown) break;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    }
+  }
+
+  private async handleMercureSeatStatus(
+    seatStatus: Record<string, string | number>,
+  ) {
+    const entries = Object.entries(seatStatus)
+      .map(([sectionId, val]) => ({
+        sectionId,
+        newEnrolled: typeof val === 'number' ? val : parseInt(val, 10),
+      }))
+      .filter(({ newEnrolled }) => !Number.isNaN(newEnrolled));
+
+    if (entries.length === 0) return;
+
+    const changedIds = entries
+      .filter(({ sectionId, newEnrolled }) => {
+        const prev = this.previousSeatData.get(sectionId);
+        return !prev || prev.enrolled !== newEnrolled;
+      })
+      .map((e) => e.sectionId);
+
+    if (changedIds.length === 0) return;
+
+    const dbSections = await this.prisma.section.findMany({
+      where: { id: { in: changedIds } },
+      include: { course: { select: { code: true } } },
+    });
+
+    const sectionMap = new Map(dbSections.map((s) => [s.id, s]));
+    const seatUpdates: {
+      sectionId: string;
+      courseCode: string;
+      sectionNumber: string;
+      enrolled: number;
+      capacity: number;
+      available: number;
+      status: string;
+    }[] = [];
+
+    for (const { sectionId, newEnrolled } of entries) {
+      const dbSec = sectionMap.get(sectionId);
+      if (!dbSec || dbSec.enrolled === newEnrolled) continue;
+
+      const newStatus = newEnrolled >= dbSec.capacity ? 'CLOSED' : 'OPEN';
+      await this.prisma.section.update({
+        where: { id: sectionId },
+        data: {
+          enrolled: newEnrolled,
+          status: newStatus,
+          lastUpdated: new Date(),
+        },
+      });
+
+      const prev = this.previousSeatData.get(sectionId);
+      this.previousSeatData.set(sectionId, {
+        enrolled: newEnrolled,
+        capacity: dbSec.capacity,
+        slotCount: prev?.slotCount ?? 1,
+        scheduleHash: prev?.scheduleHash ?? '',
+      });
+
+      const available = Math.max(0, dbSec.capacity - newEnrolled);
+      seatUpdates.push({
+        sectionId,
+        courseCode: dbSec.course.code,
+        sectionNumber: dbSec.sectionNumber,
+        enrolled: newEnrolled,
+        capacity: dbSec.capacity,
+        available,
+        status: newStatus,
+      });
+
+      if (available > 0) {
+        await this.handleSeatOpening(
+          sectionId,
+          dbSec.course.code,
+          dbSec.sectionNumber,
+          available,
+        );
+      }
+    }
+
+    if (seatUpdates.length > 0) {
+      this.logger.log(
+        `Mercure SSE: Updated & broadcasting ${seatUpdates.length} real-time seat changes`,
+      );
+      this.coursesGateway.broadcastSeatUpdate(seatUpdates);
+    }
+  }
 }
