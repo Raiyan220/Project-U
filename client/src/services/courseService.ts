@@ -11,6 +11,24 @@ export const courseService = {
         return response.data;
     },
 
+    async getRecentDrops() {
+        const response = await api.get<{
+            sectionId: string;
+            courseCode: string;
+            sectionNumber: string;
+            available: number;
+            timestamp: string;
+        }[]>('/courses/recent-drops');
+        return response.data;
+    },
+
+    async trackCourse(courseId: string) {
+        const response = await api.post<{ trackedCount: number }>(
+            `/courses/track-course/${courseId}`,
+        );
+        return response.data;
+    },
+
     async getAllCourses(query?: string) {
         const timestamp = Date.now();
         const queryString = query

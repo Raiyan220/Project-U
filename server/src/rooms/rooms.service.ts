@@ -1,9 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+export interface RoomInfo {
+  roomNumber: string;
+  building: string;
+  roomType: 'LAB' | 'THEORY';
+}
+
 @Injectable()
 export class RoomsService {
-  private roomCache: { roomNumber: string; building: string }[] | null = null;
+  private roomCache: RoomInfo[] | null = null;
   private buildingCache: string[] | null = null;
   private floorCache: string[] | null = null;
   private lastCacheTime = 0;
@@ -38,18 +44,32 @@ export class RoomsService {
       !this.buildingCache ||
       now - this.lastCacheTime > this.CACHE_TTL
     ) {
-      // Fetch fresh data
+      // Fetch fresh data including slot type to classify LAB vs THEORY rooms
       const allSlots = await this.prisma.roomSlot.findMany({
-        select: { roomNumber: true, building: true },
-        distinct: ['roomNumber', 'building'],
+        select: { roomNumber: true, building: true, type: true },
+        distinct: ['roomNumber', 'building', 'type'],
         orderBy: { roomNumber: 'asc' },
       });
 
-      // Filter out invalid building codes (like schedule strings)
-      const validSlots = allSlots.filter((s) =>
-        this.isValidBuilding(s.building),
-      );
+      // Filter out invalid building codes and merge into unique rooms
+      const roomMap = new Map<string, RoomInfo>();
+      for (const s of allSlots) {
+        if (!this.isValidBuilding(s.building)) continue;
+        const key = `${s.building}-${s.roomNumber}`;
+        const isLab = s.type === 'LAB' || /L$/i.test(s.roomNumber.trim());
+        const existing = roomMap.get(key);
+        if (!existing) {
+          roomMap.set(key, {
+            roomNumber: s.roomNumber,
+            building: s.building,
+            roomType: isLab ? 'LAB' : 'THEORY',
+          });
+        } else if (isLab) {
+          existing.roomType = 'LAB';
+        }
+      }
 
+      const validSlots = Array.from(roomMap.values());
       this.roomCache = validSlots;
       this.buildingCache = [
         ...new Set(validSlots.map((s) => s.building)),
@@ -177,6 +197,7 @@ export class RoomsService {
     }
 
     // 4. Combine data for all target rooms
+    const END_OF_DAY_MINS = 18 * 60 + 20; // 6:20 PM university hours end
     const result = targetRooms.map((room) => {
       const key = `${room.building}-${room.roomNumber}`;
       const occupied = occupiedMap.get(key);
@@ -191,12 +212,18 @@ export class RoomsService {
           status: 'BUSY',
           currentClass: courseLabel,
           busyUntil: occupied.endTime,
+          freeMinutes: 0,
         };
       } else {
+        const freeUntilMins = nextClassStart
+          ? this.toMinutes(nextClassStart)
+          : Math.max(END_OF_DAY_MINS, timeInMins);
+        const freeMinutes = Math.max(0, freeUntilMins - timeInMins);
         return {
           ...room,
           status: 'FREE',
           freeUntil: nextClassStart || null, // null means free for rest of day
+          freeMinutes,
         };
       }
     });

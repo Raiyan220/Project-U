@@ -13,16 +13,23 @@ import { Link } from 'react-router-dom';
 interface Room {
     roomNumber: string;
     building: string;
+    roomType?: 'LAB' | 'THEORY';
     status: 'FREE' | 'BUSY';
     currentClass?: string;
     freeUntil?: number | null;
     busyUntil?: number;
+    freeMinutes?: number;
 }
 
 const OpenRooms: React.FC = () => {
     const [rooms, setRooms] = useState<Room[]>([]);
     const [buildings, setBuildings] = useState<string[]>([]);
     const [selectedBuilding, setSelectedBuilding] = useState<string>('');
+    const [selectedDay, setSelectedDay] = useState<string>('');
+    const [selectedTime, setSelectedTime] = useState<string>(''); // "HH:MM"
+    const [minDuration, setMinDuration] = useState<number>(0); // minutes
+    const [roomTypeFilter, setRoomTypeFilter] = useState<'ALL' | 'THEORY' | 'LAB'>('ALL');
+    const [onlyFree, setOnlyFree] = useState<boolean>(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -56,13 +63,16 @@ const OpenRooms: React.FC = () => {
         fetchData();
     }, []);
 
-    // Fetch rooms when building changes
-    const fetchRooms = async (building: string) => {
+    // Fetch rooms when building, day, or time changes
+    const fetchRooms = async (building = selectedBuilding, day = selectedDay, timeStr = selectedTime) => {
         try {
             setLoading(true);
-            const res = await api.get('/rooms/available', {
-                params: { building }
-            });
+            setError(null);
+            const params: Record<string, string> = {};
+            if (building) params.building = building;
+            if (day) params.day = day;
+            if (timeStr) params.time = timeStr.replace(':', '');
+            const res = await api.get('/rooms/available', { params });
             setRooms(res.data);
         } catch (err) {
             setError('Failed to update rooms');
@@ -73,7 +83,23 @@ const OpenRooms: React.FC = () => {
 
     const handleBuildingChange = (b: string) => {
         setSelectedBuilding(b);
-        fetchRooms(b);
+        fetchRooms(b, selectedDay, selectedTime);
+    };
+
+    const handleDayChange = (d: string) => {
+        setSelectedDay(d);
+        fetchRooms(selectedBuilding, d, selectedTime);
+    };
+
+    const handleTimeChange = (t: string) => {
+        setSelectedTime(t);
+        fetchRooms(selectedBuilding, selectedDay, t);
+    };
+
+    const handleResetTime = () => {
+        setSelectedDay('');
+        setSelectedTime('');
+        fetchRooms(selectedBuilding, '', '');
     };
 
     const formatTime = (date: Date) => {
@@ -124,15 +150,15 @@ const OpenRooms: React.FC = () => {
             </div>
 
             {/* Filters */}
-            <div className="max-w-6xl mx-auto mb-10">
-                <div className="flex flex-wrap gap-4 items-center">
-                    <div className="flex-1 min-w-[280px]">
+            <div className="max-w-6xl mx-auto mb-8 space-y-4">
+                <div className="flex flex-wrap gap-3 items-center">
+                    <div className="flex-1 min-w-[200px]">
                         <div className="relative group">
                             <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-300 group-focus-within:text-white transition-colors" />
                             <select
                                 value={selectedBuilding}
                                 onChange={(e) => handleBuildingChange(e.target.value)}
-                                className="w-full bg-white/10 backdrop-blur-xl border border-white/20 text-white rounded-2xl py-4 pl-12 pr-4 appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all hover:bg-white/20"
+                                className="w-full bg-white/10 backdrop-blur-xl border border-white/20 text-white rounded-2xl py-3.5 pl-12 pr-4 appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all hover:bg-white/20"
                             >
                                 <option className="bg-indigo-900 text-white" value="">All Floors</option>
                                 {buildings.map(b => (
@@ -144,13 +170,93 @@ const OpenRooms: React.FC = () => {
                         </div>
                     </div>
 
+                    <select
+                        value={selectedDay}
+                        onChange={(e) => handleDayChange(e.target.value)}
+                        className="bg-white/10 border border-white/20 text-white rounded-2xl py-3.5 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 hover:bg-white/20"
+                    >
+                        <option className="bg-indigo-900 text-white" value="">Today ({currentDay.slice(0, 3)})</option>
+                        {days.map(d => (
+                            <option className="bg-indigo-900 text-white" key={d} value={d}>{d}</option>
+                        ))}
+                    </select>
+
+                    <input
+                        type="time"
+                        value={selectedTime}
+                        onChange={(e) => handleTimeChange(e.target.value)}
+                        aria-label="Check time"
+                        className="bg-white/10 border border-white/20 text-white rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                    />
+
+                    {(selectedDay || selectedTime) && (
+                        <button
+                            onClick={handleResetTime}
+                            className="bg-white/10 hover:bg-white/20 text-indigo-200 px-4 py-3.5 rounded-2xl text-sm font-semibold border border-white/15"
+                        >
+                            Now
+                        </button>
+                    )}
+
                     <button
-                        onClick={() => fetchRooms(selectedBuilding)}
-                        className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-4 rounded-2xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/20"
+                        onClick={() => fetchRooms()}
+                        className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3.5 rounded-2xl font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-purple-600/20"
                     >
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
                     </button>
+                </div>
+
+                {/* Room Type & Duration Filter Pills */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {(['ALL', 'THEORY', 'LAB'] as const).map(rt => (
+                            <button
+                                key={rt}
+                                onClick={() => setRoomTypeFilter(rt)}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${roomTypeFilter === rt
+                                    ? 'bg-indigo-500 text-white border-indigo-400 shadow'
+                                    : 'bg-white/5 text-indigo-200 border-white/10 hover:bg-white/10'}`}
+                            >
+                                {rt === 'ALL' ? 'All Rooms' : rt === 'THEORY' ? 'Theory Rooms' : 'Lab Rooms'}
+                            </button>
+                        ))}
+
+                        <span className="text-white/20 mx-1">|</span>
+
+                        {[
+                            { label: 'Any Duration', mins: 0 },
+                            { label: 'Free 1h+', mins: 60 },
+                            { label: 'Free 1.5h+', mins: 90 },
+                            { label: 'Free 3h+', mins: 180 },
+                        ].map(opt => (
+                            <button
+                                key={opt.mins}
+                                onClick={() => {
+                                    setMinDuration(opt.mins);
+                                    if (opt.mins > 0) setOnlyFree(true);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${minDuration === opt.mins
+                                    ? 'bg-emerald-500/80 text-white border-emerald-400 shadow'
+                                    : 'bg-white/5 text-indigo-200 border-white/10 hover:bg-white/10'}`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+
+                        <button
+                            onClick={() => setOnlyFree(v => !v)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all ${onlyFree
+                                ? 'bg-purple-500/80 text-white border-purple-400'
+                                : 'bg-white/5 text-indigo-200 border-white/10 hover:bg-white/10'}`}
+                        >
+                            {onlyFree ? 'Showing Free Only' : 'Include Busy'}
+                        </button>
+                    </div>
+
+                    <div className="text-xs text-indigo-200 font-medium">
+                        {rooms.filter(r => r.status === 'FREE').length} Free / {rooms.length} Total Rooms
+                    </div>
                 </div>
             </div>
 
@@ -174,13 +280,23 @@ const OpenRooms: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                        {[...rooms]
+                        {rooms
+                            .filter((room) => {
+                                if (onlyFree && room.status !== 'FREE') return false;
+                                if (roomTypeFilter !== 'ALL') {
+                                    const inferredType = room.roomType || (/L$/i.test(room.roomNumber) ? 'LAB' : 'THEORY');
+                                    if (inferredType !== roomTypeFilter) return false;
+                                }
+                                if (minDuration > 0 && (room.freeMinutes ?? 0) < minDuration) return false;
+                                return true;
+                            })
                             .sort((a, b) => {
-                                if (a.status === b.status) return 0;
+                                if (a.status === b.status) return (b.freeMinutes ?? 0) - (a.freeMinutes ?? 0);
                                 return a.status === 'FREE' ? -1 : 1;
                             })
                             .map((room, idx) => {
                                 const isBusy = room.status === 'BUSY';
+                                const isLab = (room.roomType || (/L$/i.test(room.roomNumber) ? 'LAB' : 'THEORY')) === 'LAB';
 
                                 const badgeText = isBusy
                                     ? `BUSY: Free at ${formatTimeFromHHMM(room.busyUntil!)}`
@@ -188,8 +304,8 @@ const OpenRooms: React.FC = () => {
                                         ? `Until ${formatTimeFromHHMM(room.freeUntil)}`
                                         : 'Free rest of day';
 
-                                // Calculate availability duration color for free rooms
-                                const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeUntil - (currentTime.getHours() * 100 + currentTime.getMinutes())) > 100);
+                                // Free for >= 90 minutes (or rest of day)
+                                const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeMinutes ?? 0) >= 90);
 
                                 return (
                                     <div
@@ -217,6 +333,9 @@ const OpenRooms: React.FC = () => {
                                             <p className="text-[10px] text-indigo-200 mt-1 flex items-center gap-1 font-medium">
                                                 <MapPin className="w-3 h-3 text-indigo-300" />
                                                 {room.building === 'UB' ? 'UB' : `Floor ${room.building}`}
+                                                <span className={`ml-1 px-1.5 py-0.2 rounded text-[8px] font-bold ${isLab ? 'bg-pink-500/20 text-pink-300' : 'bg-sky-500/20 text-sky-300'}`}>
+                                                    {isLab ? 'LAB' : 'THEORY'}
+                                                </span>
                                             </p>
 
                                             {isBusy && room.currentClass && (

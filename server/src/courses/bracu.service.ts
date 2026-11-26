@@ -65,6 +65,14 @@ interface MercureSeatPayload {
   seatStatus?: Record<string, string | number>;
 }
 
+export interface RecentSeatDrop {
+  sectionId: string;
+  courseCode: string;
+  sectionNumber: string;
+  available: number;
+  timestamp: string;
+}
+
 @Injectable()
 export class BracuService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BracuService.name);
@@ -77,6 +85,7 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
     { enrolled: number; capacity: number; slotCount: number; scheduleHash: string }
   >();
   private courseCodeToIdCache = new Map<string, string>(); // Cache courseCode -> courseId
+  private recentSeatDrops: RecentSeatDrop[] = [];
   private isSyncing = false; // Lock to prevent concurrent syncs
   private isFirstSync = true; // Optimization flag for startup
   private mercureAbortController: AbortController | null = null;
@@ -755,6 +764,28 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  getRecentSeatDrops(): RecentSeatDrop[] {
+    return this.recentSeatDrops;
+  }
+
+  private recordSeatDrop(
+    sectionId: string,
+    courseCode: string,
+    sectionNumber: string,
+    available: number,
+  ) {
+    this.recentSeatDrops.unshift({
+      sectionId,
+      courseCode,
+      sectionNumber,
+      available,
+      timestamp: new Date().toISOString(),
+    });
+    if (this.recentSeatDrops.length > 25) {
+      this.recentSeatDrops.length = 25;
+    }
+  }
+
   private async handleSeatOpening(
     sectionId: string,
     courseCode: string,
@@ -957,6 +988,14 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (available > 0) {
+        if (newEnrolled < dbSec.enrolled) {
+          this.recordSeatDrop(
+            sectionId,
+            dbSec.course.code,
+            dbSec.sectionNumber,
+            available,
+          );
+        }
         void this.handleSeatOpening(
           sectionId,
           dbSec.course.code,

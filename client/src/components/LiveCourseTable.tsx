@@ -72,6 +72,25 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
         },
     });
 
+    const trackCourseMutation = useMutation({
+        mutationFn: () => courseService.trackCourse(course.id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['myTracks'] });
+        },
+    });
+
+    const handleTrackAll = async () => {
+        if (!isAuthenticated) {
+            navigate('/login');
+            return;
+        }
+        try {
+            await trackCourseMutation.mutateAsync();
+        } catch (error) {
+            console.error('Failed to track all sections:', error);
+        }
+    };
+
     const isTracking = (sectionId: string) => {
         return (myTracks as any[])?.some((track: { sectionId: string }) => track.sectionId === sectionId);
     };
@@ -105,6 +124,20 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
             animate={{ opacity: 1, y: 0 }}
             className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl mt-4 ring-1 ring-white/10"
         >
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-slate-800">
+                <span className="text-xs font-bold text-slate-300">
+                    {course.code} — {sections.length} Sections
+                </span>
+                <button
+                    onClick={handleTrackAll}
+                    disabled={trackCourseMutation.isPending}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-bold transition-all disabled:opacity-50"
+                    title="Track every section of this course for seat drops"
+                >
+                    <Bell className="w-3.5 h-3.5" />
+                    {trackCourseMutation.isPending ? 'Tracking...' : 'Track All Sections'}
+                </button>
+            </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                     <thead className="bg-slate-950 text-sky-400 uppercase text-xs font-bold tracking-wider border-b border-slate-700">

@@ -98,6 +98,40 @@ export class TrackingService {
     }
   }
 
+  async trackAllSectionsOfCourse(userId: string, courseId: string) {
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      include: { sections: { select: { id: true } } },
+    });
+
+    if (!course) {
+      throw new NotFoundException('Course not found');
+    }
+
+    if (course.sections.length === 0) {
+      return { trackedCount: 0 };
+    }
+
+    await this.prisma.tracking.createMany({
+      data: course.sections.map((sec) => ({
+        userId,
+        sectionId: sec.id,
+        active: true,
+      })),
+      skipDuplicates: true,
+    });
+
+    await this.prisma.tracking.updateMany({
+      where: {
+        userId,
+        sectionId: { in: course.sections.map((s) => s.id) },
+      },
+      data: { active: true },
+    });
+
+    return { trackedCount: course.sections.length };
+  }
+
   async untrackSection(userId: string, sectionId: string) {
     return this.prisma.tracking
       .delete({

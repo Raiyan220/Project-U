@@ -7,7 +7,28 @@ import type { Course } from '../types/course';
 import { LiveCourseTable } from '../components/LiveCourseTable';
 import { useRealtimeSeats } from '../hooks/useRealtimeSeats';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, Map as MapIcon } from 'lucide-react';
+import { Bell, BellRing, Map as MapIcon, Zap } from 'lucide-react';
+
+function playAlertChime() {
+    try {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+    } catch {
+        // Ignore audio blocked errors
+    }
+}
 
 export default function Dashboard() {
     const { user, logout } = useAuth();
@@ -18,6 +39,11 @@ export default function Dashboard() {
     const [isSearching, setIsSearching] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [syncing, setSyncing] = useState(false);
+    const [pushEnabled, setPushEnabled] = useState<boolean>(() => {
+        return localStorage.getItem('uniflow_push_alerts') === 'true' &&
+            typeof Notification !== 'undefined' &&
+            Notification.permission === 'granted';
+    });
 
     // Use React Query for stats with caching
     const { data: stats } = useQuery({
@@ -25,6 +51,12 @@ export default function Dashboard() {
         queryFn: () => courseService.getStats(),
         staleTime: 30000, // Consider data fresh for 30 seconds
         gcTime: 60000, // Keep in cache for 1 minute
+    });
+
+    const { data: recentDrops } = useQuery({
+        queryKey: ['recentDrops'],
+        queryFn: () => courseService.getRecentDrops(),
+        staleTime: 15000,
     });
 
     useEffect(() => {
@@ -62,12 +94,98 @@ export default function Dashboard() {
         }
     }, []);
 
-    // Real-time updates via WebSocket
+    const togglePushAlerts = async () => {
+        if (typeof Notification === 'undefined') return;
+        if (pushEnabled) {
+            localStorage.setItem('uniflow_push_alerts', 'false');
+            setPushEnabled(false);
+            return;
+        }
+        const permission = Notification.permission === 'granted'
+            ? 'granted'
+            : await Notification.requestPermission();
+        if (permission === 'granted') {
+            localStorage.setItem('uniflow_push_alerts', 'true');
+            setPushEnabled(true);
+            playAlertChime();
+            new Notification('UniFlow Instant Alerts Enabled', {
+                body: 'You will get instant desktop alerts the millisecond a tracked seat opens.',
+            });
+        }
+    };
+
+    // Real-time updates via WebSocket — patch caches in-place + trigger instant browser push alerts
     const { isConnected } = useRealtimeSeats({
-        onSeatUpdate: () => {
+        onSeatUpdate: (updates) => {
+            const updateMap = new Map(updates.map((u) => [u.sectionId, u]));
+
+            // 1. Patch searchResults in-place (0ms)
+            setSearchResults((prev) =>
+                prev.map((course) => ({
+                    ...course,
+                    sections: course.sections?.map((sec) => {
+                        const u = updateMap.get(sec.id);
+                        if (!u) return sec;
+                        return {
+                            ...sec,
+                            enrolled: u.enrolled,
+                            capacity: u.capacity,
+                            status: (u.status === 'CLOSED' ? 'CLOSED' : 'OPEN') as 'OPEN' | 'CLOSED',
+                        };
+                    }),
+                })),
+            );
+
+            // 2. Patch myTracks in-place & fire instant browser push alerts for tracked open seats
+            const trackedList = queryClient.getQueryData<any[]>(['myTracks']) || [];
+            const trackedIds = new Set(trackedList.map((t) => t.sectionId));
+
+            queryClient.setQueryData<any[]>(['myTracks'], (old) => {
+                if (!old) return old;
+                return old.map((t) => {
+                    const u = updateMap.get(t.sectionId);
+                    if (!u || !t.section) return t;
+                    return {
+                        ...t,
+                        section: {
+                            ...t.section,
+                            enrolled: u.enrolled,
+                            capacity: u.capacity,
+                            status: u.status,
+                        },
+                    };
+                });
+            });
+
+            // 3. Append newly opened seats to live recentDrops ticker
+            const opened = updates.filter((u) => u.available > 0);
+            if (opened.length > 0) {
+                queryClient.setQueryData<any[]>(['recentDrops'], (old = []) => {
+                    const fresh = opened.map((u) => ({
+                        sectionId: u.sectionId,
+                        courseCode: u.courseCode,
+                        sectionNumber: u.sectionNumber,
+                        available: u.available,
+                        timestamp: new Date().toISOString(),
+                    }));
+                    return [...fresh, ...old].slice(0, 25);
+                });
+
+                // 4. Instant browser push + chime if any tracked section opened
+                if (pushEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                    const myOpened = opened.filter((u) => trackedIds.has(u.sectionId));
+                    if (myOpened.length > 0) {
+                        playAlertChime();
+                        myOpened.slice(0, 3).forEach((u) => {
+                            new Notification(`🚨 Seat Opened: ${u.courseCode} Sec ${u.sectionNumber}`, {
+                                body: `${u.available} ${u.available === 1 ? 'seat' : 'seats'} available right now!`,
+                            });
+                        });
+                    }
+                }
+            }
+
             queryClient.invalidateQueries({ queryKey: ['courseStats'] });
-            queryClient.invalidateQueries({ queryKey: ['myTracks'] });
-            if (searchQuery) performSearch(searchQuery);
         },
         onSyncComplete: (data) => {
             if (data.updatedSections > 0) {
@@ -205,7 +323,17 @@ export default function Dashboard() {
                                     You're successfully logged in. Here's your dashboard.
                                 </p>
                             </div>
-                            <div>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    onClick={togglePushAlerts}
+                                    className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-md shadow-sm transition-colors border ${pushEnabled
+                                        ? 'bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400/50'
+                                        : 'bg-white/10 hover:bg-white/20 text-gray-200 border-white/20'}`}
+                                    title="Get instant desktop notifications + chime when tracked seats open"
+                                >
+                                    <BellRing className="w-4 h-4 mr-2" />
+                                    {pushEnabled ? 'Instant Push: ON' : 'Enable Push Alerts'}
+                                </button>
                                 <button
                                     onClick={handleSync}
                                     disabled={syncing}
@@ -357,6 +485,35 @@ export default function Dashboard() {
                     </div>
 
                     <MyTrackedCourses />
+
+                    {/* Live Seat Drops Feed */}
+                    {recentDrops && recentDrops.length > 0 && (
+                        <div className="mb-8 bg-white/5 rounded-2xl p-5 border border-white/10">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-emerald-400" />
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-300">
+                                        Live Seat Drops
+                                    </h3>
+                                </div>
+                                <span className="text-[11px] text-gray-400">Real-time Mercure feed</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {recentDrops.slice(0, 10).map((drop, idx) => (
+                                    <button
+                                        key={`${drop.sectionId}-${drop.timestamp}-${idx}`}
+                                        onClick={() => {
+                                            setSearchQuery(drop.courseCode);
+                                            void performSearch(drop.courseCode);
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-mono text-emerald-200 transition-colors"
+                                    >
+                                        {drop.courseCode}-[{drop.sectionNumber}] • <span className="font-bold text-emerald-400">{drop.available} open</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Live Search Section */}
                     <motion.div

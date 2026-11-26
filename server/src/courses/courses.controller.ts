@@ -39,6 +39,22 @@ export class CoursesController {
     return this.coursesService.getStats();
   }
 
+  @Get('recent-drops')
+  @ApiOperation({ summary: 'Get latest live seat-opening events' })
+  getRecentDrops() {
+    return this.bracuService.getRecentSeatDrops();
+  }
+
+  @Post('track-course/:courseId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Track all sections of a course for seat drops' })
+  async trackCourse(
+    @CurrentUser() user: any,
+    @Param('courseId') courseId: string,
+  ) {
+    return this.trackingService.trackAllSectionsOfCourse(user.id, courseId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all courses or search by query' })
   @ApiQuery({ name: 'q', required: false })

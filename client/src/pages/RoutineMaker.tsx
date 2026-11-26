@@ -3,15 +3,62 @@ import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import html2canvas from 'html2canvas';
 import { courseService } from '../services/courseService';
-import type { Section } from '../types/course';
+import type { Course, Section } from '../types/course';
 import { Link } from 'react-router-dom';
+import { Sparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
+
+type SectionWithCode = Section & { _displayCode?: string };
+
+interface GeneratedRoutine {
+    sections: SectionWithCode[];
+    campusDays: number;
+    sameDayExams: number;
+    floorJumps: number;
+    score: number;
+}
+
+const toMins = (hhmm: number) => Math.floor(hhmm / 100) * 60 + (hhmm % 100);
+
+const getExamDayKey = (examDate?: string): string | null => {
+    if (!examDate) return null;
+    // Matches "Jan 7, 2027" or "Monday, January 11, 2027" before time window
+    const match = examDate.match(/([A-Za-z]+\s+\d{1,2},\s+\d{4})/);
+    return match ? match[1] : examDate.split(/\d{1,2}:\d{2}/)[0].trim();
+};
+
+const getFloorNum = (building?: string): number | null => {
+    if (!building) return null;
+    const m = building.match(/^(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+};
+
+const sectionsOverlap = (a: Section, b: Section): boolean => {
+    for (const sa of a.slots || []) {
+        for (const sb of b.slots || []) {
+            if (sa.day === sb.day && sa.startTime < sb.endTime && sa.endTime > sb.startTime) {
+                return true;
+            }
+        }
+    }
+    return false;
+};
 
 export default function RoutineMaker() {
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedSections, setSelectedSections] = useState<Section[]>([]);
+    const [selectedSections, setSelectedSections] = useState<SectionWithCode[]>([]);
     const [focusedSection, setFocusedSection] = useState<{ courseCode: string; courseTitle: string; section: Section } | null>(null);
     const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
+
+    // Smart Auto-Routine Generator state
+    const [showAutoGen, setShowAutoGen] = useState(false);
+    const [autoCourseInput, setAutoCourseInput] = useState('');
+    const [onlyOpenSeats, setOnlyOpenSeats] = useState(true);
+    const [noEightAm, setNoEightAm] = useState(false);
+    const [avoidFaculties, setAvoidFaculties] = useState('');
+    const [priorityMode, setPriorityMode] = useState<'FEWEST_DAYS' | 'NO_SAME_DAY_EXAM' | 'BALANCED'>('BALANCED');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [generatedRoutines, setGeneratedRoutines] = useState<GeneratedRoutine[]>([]);
 
     const { data: courses, isLoading } = useQuery({
         queryKey: ['courses', searchQuery],
@@ -92,8 +139,10 @@ export default function RoutineMaker() {
     };
 
     const handleAddSection = (wrapper: { courseCode: string; section: Section }) => {
-        // 1. Check if course already added
-        const alreadyHasCourse = selectedSections.find(s => s.courseId === wrapper.courseCode);
+        // 1. Check if course already added (match both display code and courseId UUID)
+        const alreadyHasCourse = selectedSections.find(
+            (s) => s._displayCode === wrapper.courseCode || s.courseId === wrapper.section.courseId,
+        );
         if (alreadyHasCourse) {
             setNotification({ type: 'error', message: `Already selected a section for ${wrapper.courseCode}` });
             return;
@@ -114,9 +163,205 @@ export default function RoutineMaker() {
         }
 
         // Add
-        const sectionWithCode = { ...wrapper.section, _displayCode: wrapper.courseCode };
+        const sectionWithCode: SectionWithCode = { ...wrapper.section, _displayCode: wrapper.courseCode };
         setSelectedSections([...selectedSections, sectionWithCode]);
         setNotification({ type: 'success', message: `Added ${wrapper.courseCode} Sec ${wrapper.section.sectionNumber}` });
+    };
+
+    // Detect Same-Day Multiple Exams & Tight Back-to-Back Floor Transitions
+    const routineWarnings = useMemo(() => {
+        const warnings: string[] = [];
+
+        // 1. Same-day exam check
+        const examDayMap = new Map<string, string[]>();
+        for (const sec of selectedSections) {
+            const dayKey = getExamDayKey(sec.examDate);
+            if (!dayKey) continue;
+            const list = examDayMap.get(dayKey) || [];
+            list.push(`${sec._displayCode || sec.courseId} (${sec.sectionNumber})`);
+            examDayMap.set(dayKey, list);
+        }
+        examDayMap.forEach((list, dayKey) => {
+            if (list.length > 1) {
+                warnings.push(`Same-day exams on ${dayKey}: ${list.join(' & ')}`);
+            }
+        });
+
+        // 2. Back-to-back floor transition check (<= 15 min gap across different floors)
+        const slotsByDay = new Map<string, { code: string; start: number; end: number; building: string }[]>();
+        for (const sec of selectedSections) {
+            for (const slot of sec.slots || []) {
+                const arr = slotsByDay.get(slot.day) || [];
+                arr.push({
+                    code: `${sec._displayCode || sec.courseId}`,
+                    start: slot.startTime,
+                    end: slot.endTime,
+                    building: slot.building,
+                });
+                slotsByDay.set(slot.day, arr);
+            }
+        }
+        slotsByDay.forEach((list, day) => {
+            list.sort((a, b) => a.start - b.start);
+            for (let i = 0; i < list.length - 1; i++) {
+                const curr = list[i];
+                const next = list[i + 1];
+                const gap = toMins(next.start) - toMins(curr.end);
+                const f1 = getFloorNum(curr.building);
+                const f2 = getFloorNum(next.building);
+                if (gap >= 0 && gap <= 15 && f1 !== null && f2 !== null && Math.abs(f1 - f2) >= 2) {
+                    warnings.push(`Tight ${gap}m transition on ${day.slice(0, 3)}: Floor ${f1} → Floor ${f2} (${curr.code} → ${next.code})`);
+                }
+            }
+        });
+
+        return warnings;
+    }, [selectedSections]);
+
+    // Smart Auto-Routine Generator solver
+    const handleGenerateRoutines = async () => {
+        const codes = Array.from(
+            new Set(
+                autoCourseInput
+                    .split(/[\s,]+/)
+                    .map((c) => c.trim().toUpperCase())
+                    .filter(Boolean),
+            ),
+        ).slice(0, 6);
+
+        if (codes.length === 0) {
+            setNotification({ type: 'error', message: 'Enter at least 1 course code (e.g. CSE220, MAT215)' });
+            return;
+        }
+
+        const avoidSet = new Set(
+            avoidFaculties
+                .split(/[\s,]+/)
+                .map((f) => f.trim().toUpperCase())
+                .filter(Boolean),
+        );
+
+        setIsGenerating(true);
+        setGeneratedRoutines([]);
+        try {
+            const courseResponses = await Promise.all(
+                codes.map((code) => courseService.getAllCourses(code)),
+            );
+
+            const buckets: SectionWithCode[][] = [];
+            for (let i = 0; i < codes.length; i++) {
+                const code = codes[i];
+                const matchedCourse = courseResponses[i].find(
+                    (c: Course) => c.code.toUpperCase() === code,
+                );
+                if (!matchedCourse || !matchedCourse.sections?.length) {
+                    setNotification({ type: 'error', message: `Course ${code} not found or has no sections` });
+                    setIsGenerating(false);
+                    return;
+                }
+
+                const filtered = matchedCourse.sections
+                    .filter((sec) => {
+                        if (onlyOpenSeats && sec.enrolled >= sec.capacity) return false;
+                        if (avoidSet.size > 0 && sec.facultyInitials) {
+                            const facs = sec.facultyInitials.split(',').map((f) => f.trim().toUpperCase());
+                            if (facs.some((f) => avoidSet.has(f))) return false;
+                        }
+                        if (noEightAm && sec.slots?.some((s) => s.startTime < 900)) return false;
+                        return true;
+                    })
+                    .slice(0, 18) // Keep solver fast
+                    .map((sec) => ({ ...sec, _displayCode: matchedCourse.code }));
+
+                if (filtered.length === 0) {
+                    setNotification({ type: 'error', message: `No sections of ${code} match your filters` });
+                    setIsGenerating(false);
+                    return;
+                }
+                buckets.push(filtered);
+            }
+
+            // Backtracking search (cap explored combos for instant response)
+            const results: GeneratedRoutine[] = [];
+            let steps = 0;
+            const MAX_STEPS = 4000;
+
+            const scoreRoutine = (combo: SectionWithCode[]): GeneratedRoutine => {
+                const daySet = new Set<string>();
+                const examDays = new Map<string, number>();
+                const slotsByDay = new Map<string, { start: number; end: number; building: string }[]>();
+
+                for (const sec of combo) {
+                    const exKey = getExamDayKey(sec.examDate);
+                    if (exKey) examDays.set(exKey, (examDays.get(exKey) || 0) + 1);
+                    for (const sl of sec.slots || []) {
+                        daySet.add(sl.day);
+                        const list = slotsByDay.get(sl.day) || [];
+                        list.push({ start: sl.startTime, end: sl.endTime, building: sl.building });
+                        slotsByDay.set(sl.day, list);
+                    }
+                }
+
+                let sameDayExams = 0;
+                examDays.forEach((cnt) => {
+                    if (cnt > 1) sameDayExams += cnt - 1;
+                });
+
+                let floorJumps = 0;
+                slotsByDay.forEach((list) => {
+                    list.sort((a, b) => a.start - b.start);
+                    for (let i = 0; i < list.length - 1; i++) {
+                        const gap = toMins(list[i + 1].start) - toMins(list[i].end);
+                        const f1 = getFloorNum(list[i].building);
+                        const f2 = getFloorNum(list[i + 1].building);
+                        if (gap >= 0 && gap <= 15 && f1 !== null && f2 !== null && Math.abs(f1 - f2) >= 2) {
+                            floorJumps++;
+                        }
+                    }
+                });
+
+                const campusDays = daySet.size;
+                let penalty = campusDays * 10 + sameDayExams * 15 + floorJumps * 6;
+                if (priorityMode === 'FEWEST_DAYS') penalty = campusDays * 30 + sameDayExams * 8 + floorJumps * 4;
+                if (priorityMode === 'NO_SAME_DAY_EXAM') penalty = sameDayExams * 40 + campusDays * 10 + floorJumps * 4;
+
+                return { sections: combo, campusDays, sameDayExams, floorJumps, score: 100 - penalty };
+            };
+
+            const backtrack = (idx: number, chosen: SectionWithCode[]) => {
+                if (steps++ > MAX_STEPS || results.length >= 40) return;
+                if (idx === buckets.length) {
+                    results.push(scoreRoutine([...chosen]));
+                    return;
+                }
+                for (const cand of buckets[idx]) {
+                    const hasClash = chosen.some(
+                        (ex) =>
+                            sectionsOverlap(ex, cand) ||
+                            (ex.examDate && cand.examDate && ex.examDate === cand.examDate),
+                    );
+                    if (!hasClash) {
+                        chosen.push(cand);
+                        backtrack(idx + 1, chosen);
+                        chosen.pop();
+                    }
+                }
+            };
+
+            backtrack(0, []);
+            results.sort((a, b) => b.score - a.score);
+            const top = results.slice(0, 5);
+            setGeneratedRoutines(top);
+
+            if (top.length === 0) {
+                setNotification({ type: 'error', message: 'No clash-free combination found for those filters' });
+            }
+        } catch (err) {
+            console.error('Auto-routine error:', err);
+            setNotification({ type: 'error', message: 'Failed to generate routines' });
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
     const handleRemoveSection = (sectionId: string) => {
@@ -158,15 +403,16 @@ export default function RoutineMaker() {
         { start: 1700, end: 1820, label: '05:00-06:20' },
     ];
 
-    const getCourseForSlot = (day: string, slotStart: number) => {
-        const found = selectedSections.find(sec =>
-            sec.slots?.some(s =>
-                s.day === day &&
-                s.type === 'CLASS' &&
-                Math.abs(s.startTime - slotStart) < 5
-            )
-        );
-        return found;
+    const getCourseForSlot = (day: string, slotStart: number, slotEnd: number) => {
+        for (const sec of selectedSections) {
+            const matchedSlot = sec.slots?.find(
+                (s) => s.day === day && s.startTime >= slotStart - 5 && s.startTime < slotEnd - 5,
+            );
+            if (matchedSlot) {
+                return { section: sec, slot: matchedSlot };
+            }
+        }
+        return null;
     };
 
     const toggleCourse = (code: string) => {
@@ -189,7 +435,143 @@ export default function RoutineMaker() {
                             </h1>
                         </div>
                     </div>
+
+                    <button
+                        onClick={() => setShowAutoGen((v) => !v)}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold shadow-lg shadow-purple-600/30 transition-all"
+                    >
+                        <Sparkles className="w-4 h-4" />
+                        {showAutoGen ? 'Hide Auto-Routine Generator' : 'Smart Auto-Routine Generator'}
+                    </button>
                 </header>
+
+                {/* Smart Auto-Routine Generator Panel */}
+                <AnimatePresence>
+                    {showAutoGen && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mb-6 bg-white/10 border border-purple-400/30 rounded-2xl p-5 backdrop-blur-xl overflow-hidden"
+                        >
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
+                                <div>
+                                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                        <Sparkles className="w-5 h-5 text-pink-400" />
+                                        Smart Auto-Routine Generator
+                                    </h2>
+                                    <p className="text-xs text-indigo-200">
+                                        Enter your target courses and constraints—we'll find top clash-free schedules automatically.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                                <input
+                                    type="text"
+                                    placeholder="Courses (e.g. CSE220, MAT215, ENG102)"
+                                    value={autoCourseInput}
+                                    onChange={(e) => setAutoCourseInput(e.target.value)}
+                                    className="md:col-span-2 px-4 py-2.5 rounded-xl bg-black/30 border border-white/15 text-sm text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Avoid Faculties (e.g. TBA, ABC)"
+                                    value={avoidFaculties}
+                                    onChange={(e) => setAvoidFaculties(e.target.value)}
+                                    className="px-4 py-2.5 rounded-xl bg-black/30 border border-white/15 text-sm text-white placeholder-gray-400 outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <select
+                                    value={priorityMode}
+                                    onChange={(e) => setPriorityMode(e.target.value as any)}
+                                    className="px-4 py-2.5 rounded-xl bg-black/30 border border-white/15 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500"
+                                >
+                                    <option className="bg-indigo-950" value="BALANCED">Balanced Routine</option>
+                                    <option className="bg-indigo-950" value="FEWEST_DAYS">Fewest Campus Days</option>
+                                    <option className="bg-indigo-950" value="NO_SAME_DAY_EXAM">Avoid Same-Day Exams</option>
+                                </select>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div className="flex flex-wrap items-center gap-4 text-xs text-gray-200">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={onlyOpenSeats}
+                                            onChange={(e) => setOnlyOpenSeats(e.target.checked)}
+                                            className="rounded accent-purple-500"
+                                        />
+                                        Only Open Seats
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={noEightAm}
+                                            onChange={(e) => setNoEightAm(e.target.checked)}
+                                            className="rounded accent-purple-500"
+                                        />
+                                        No 8:00 AM Classes
+                                    </label>
+                                </div>
+
+                                <button
+                                    onClick={handleGenerateRoutines}
+                                    disabled={isGenerating}
+                                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all disabled:opacity-50"
+                                >
+                                    {isGenerating ? 'Solving...' : 'Generate Clash-Free Routines'}
+                                </button>
+                            </div>
+
+                            {generatedRoutines.length > 0 && (
+                                <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {generatedRoutines.map((routine, idx) => (
+                                        <div key={idx} className="bg-black/30 border border-white/15 rounded-xl p-3.5 flex flex-col justify-between gap-2">
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-xs font-bold text-purple-300">Option #{idx + 1}</span>
+                                                    <span className="text-[10px] text-emerald-300 font-semibold">
+                                                        {routine.campusDays} days/wk • {routine.sameDayExams} same-day exams • {routine.floorJumps} tight jumps
+                                                    </span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {routine.sections.map((s) => (
+                                                        <div key={s.id} className="text-xs flex justify-between text-gray-200">
+                                                            <span className="font-bold">{s._displayCode} [{s.sectionNumber}]</span>
+                                                            <span className="text-gray-400">{s.facultyInitials || 'TBA'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedSections(routine.sections);
+                                                    setNotification({ type: 'success', message: `Applied Routine Option #${idx + 1}` });
+                                                }}
+                                                className="mt-2 w-full py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-xs font-bold text-white flex items-center justify-center gap-1.5"
+                                            >
+                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                Apply Routine
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Exam Clash & Floor Transition Warnings */}
+                {routineWarnings.length > 0 && (
+                    <div className="mb-5 bg-amber-500/15 border border-amber-400/40 rounded-xl p-3.5 flex flex-col gap-1">
+                        {routineWarnings.map((w, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-xs text-amber-200 font-medium">
+                                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                                <span>{w}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Notification */}
                 <AnimatePresence>
@@ -440,19 +822,23 @@ export default function RoutineMaker() {
                                                 {slot.label}
                                             </td>
                                             {days.map((day) => {
-                                                const courseTuple = getCourseForSlot(day, slot.start);
-                                                const room = courseTuple?.slots?.find(s =>
-                                                    s.day === day && s.type === 'CLASS' && Math.abs(s.startTime - slot.start) < 5
-                                                )?.roomNumber;
+                                                const match = getCourseForSlot(day, slot.start, slot.end);
+                                                const courseTuple = match?.section;
+                                                const matchedSlot = match?.slot;
 
                                                 return (
                                                     <td key={day} className="border border-gray-800 relative h-16 p-0.5">
-                                                        {courseTuple && (
-                                                            <div className="w-full h-full bg-indigo-600/60 border border-indigo-400/30 rounded md:rounded-lg flex flex-col items-center justify-center p-1 text-center shadow-sm">
+                                                        {courseTuple && matchedSlot && (
+                                                            <div className={`w-full h-full rounded md:rounded-lg flex flex-col items-center justify-center p-1 text-center shadow-sm border ${matchedSlot.type === 'LAB'
+                                                                ? 'bg-pink-600/50 border-pink-400/40'
+                                                                : 'bg-indigo-600/60 border-indigo-400/30'}`}>
                                                                 {/* @ts-ignore */}
-                                                                <span className="font-bold text-white text-xs leading-none">{courseTuple._displayCode || courseTuple.courseId}</span>
+                                                                <span className="font-bold text-white text-xs leading-none">
+                                                                    {courseTuple._displayCode || courseTuple.courseId}
+                                                                    {matchedSlot.type === 'LAB' ? ' LAB' : ''}
+                                                                </span>
                                                                 <span className="text-[9px] text-indigo-200 leading-none mt-0.5">Sec {courseTuple.sectionNumber}</span>
-                                                                <span className="text-[8px] text-gray-300 font-mono leading-none mt-0.5">{room?.split('-').pop()}</span>
+                                                                <span className="text-[8px] text-gray-300 font-mono leading-none mt-0.5">{matchedSlot.roomNumber}</span>
                                                             </div>
                                                         )}
                                                     </td>
