@@ -122,10 +122,10 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl mt-4 ring-1 ring-white/10"
+            className="w-full overflow-hidden rounded-xl border border-purple-400/25 bg-purple-950/60 backdrop-blur-xl shadow-2xl mt-4 ring-1 ring-white/10"
         >
-            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-slate-800">
-                <span className="text-xs font-bold text-slate-300">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-950/70 border-b border-purple-400/20">
+                <span className="text-xs font-bold text-purple-100">
                     {course.code} — {sections.length} Sections
                 </span>
                 <button
@@ -140,7 +140,7 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-950 text-sky-400 uppercase text-xs font-bold tracking-wider border-b border-slate-700">
+                    <thead className="bg-purple-950/80 text-purple-200 uppercase text-xs font-bold tracking-wider border-b border-purple-400/25">
                         <tr>
                             <th className="px-4 py-4 border-r border-slate-700/50">Course Code</th>
                             <th className="px-4 py-4 border-r border-slate-700/50 text-center">Fac. Init.</th>
@@ -253,10 +253,10 @@ export const LiveCourseTable = ({ course }: LiveCourseTableProps) => {
             </div>
 
             {hasMore && (
-                <div className="p-4 bg-slate-900 border-t border-slate-700 text-center">
+                <div className="p-4 bg-purple-950/70 border-t border-purple-400/20 text-center">
                     <button
                         onClick={handleShowMore}
-                        className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-bold text-white transition-all focus:outline-none flex items-center justify-center mx-auto shadow-lg shadow-blue-600/20"
+                        className="px-6 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-sm font-bold text-white transition-all focus:outline-none flex items-center justify-center mx-auto shadow-lg shadow-purple-600/20"
                     >
                         Show More Sections ({sections.length - visibleCount} remaining)
                         <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -902,13 +902,13 @@ export default function RoutineMaker() {
                     </div>
 
                     <div className="overflow-x-auto pb-2" id="routine-table">
-                        <div className="bg-[#0f1016] p-3 rounded-xl min-w-[800px] border border-white/10">
+                        <div className="bg-purple-950/60 backdrop-blur-xl p-3 rounded-xl min-w-[800px] border border-purple-400/20 shadow-xl">
                             <table className="w-full border-collapse">
                                 <thead>
                                     <tr>
-                                        <th className="p-2 border border-gray-800 bg-gray-900/80 text-gray-400 font-bold text-xs w-24 text-left">Time/Day</th>
+                                        <th className="p-2 border border-purple-400/20 bg-purple-900/50 text-purple-200 font-bold text-xs w-24 text-left">Time/Day</th>
                                         {days.map((day) => (
-                                            <th key={day} className="p-2 border border-gray-800 bg-gray-900/80 text-gray-400 font-bold text-xs text-center">
+                                            <th key={day} className="p-2 border border-purple-400/20 bg-purple-900/50 text-purple-200 font-bold text-xs text-center">
                                                 {day.slice(0, 3)}
                                             </th>
                                         ))}
@@ -917,14 +917,14 @@ export default function RoutineMaker() {
                                 <tbody>
                                     {timeSlots.map((slot) => (
                                         <tr key={slot.label}>
-                                            <td className="p-2 border border-gray-800 bg-gray-900/40 text-[10px] text-gray-500 font-mono font-bold text-center">
+                                            <td className="p-2 border border-purple-400/15 bg-indigo-950/40 text-[10px] text-purple-300/80 font-mono font-bold text-center">
                                                 {slot.label}
                                             </td>
                                             {days.map((day) => {
                                                 const cellMatches = getCoursesForSlot(day, slot.start, slot.end);
 
                                                 return (
-                                                    <td key={day} className="border border-gray-800 relative h-16 p-0.5 align-middle">
+                                                    <td key={day} className="border border-purple-400/15 relative h-16 p-0.5 align-middle bg-purple-950/20">
                                                         {cellMatches.length > 0 && (
                                                             <div className="flex flex-col gap-0.5 w-full h-full">
                                                                 {cellMatches.map(({ section: courseTuple, slot: matchedSlot }, idx) => (

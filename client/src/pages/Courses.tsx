@@ -157,7 +157,7 @@ export default function Courses() {
                             className="flex flex-col gap-6"
                         >
                             {courses?.map((course: Course) => (
-                                <div key={course.id} className="mb-8 bg-slate-900/50 p-6 rounded-2xl border border-white/10 backdrop-blur-sm">
+                                <div key={course.id} className="mb-8 bg-purple-950/40 p-6 rounded-2xl border border-purple-400/20 backdrop-blur-sm">
                                     <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
                                         <span className="bg-purple-600 px-3 py-1 rounded-lg text-lg shadow-lg shadow-purple-500/20">{course.code}</span>
                                         <span className="text-gray-300 text-lg font-normal truncate">{course.title}</span>

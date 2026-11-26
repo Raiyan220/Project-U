@@ -399,7 +399,7 @@ const OpenRooms: React.FC = () => {
                                 key={`${room.building}-${room.roomNumber}-${idx}`}
                                 className={`group relative backdrop-blur-xl border p-5 rounded-2xl transition-all hover:-translate-y-1 cursor-default overflow-hidden
                                     ${isBusy
-                                        ? 'bg-slate-900/40 border-slate-700/50 grayscale-[0.5] hover:grayscale-0'
+                                        ? 'bg-purple-950/45 border-purple-400/15 grayscale-[0.4] hover:grayscale-0'
                                         : 'bg-white/10 border-white/20 hover:bg-white/20 hover:border-purple-500/50 shadow-lg shadow-purple-900/10'}`}
                             >
                                 <div className="relative z-10 flex flex-col items-center">

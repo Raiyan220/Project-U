@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Calculator } from 'lucide-react';
+import { Plus, Trash2, Calculator, Sparkles, Send } from 'lucide-react';
 
 interface Course {
     id: string;
@@ -33,6 +33,81 @@ export default function CGPACalculator() {
     ]);
     const [currentCGPA, setCurrentCGPA] = useState<string>('');
     const [completedCredits, setCompletedCredits] = useState<string>('');
+    const [totalDegreeCredits, setTotalDegreeCredits] = useState<string>('136');
+    const [targetCGPA, setTargetCGPA] = useState<string>('3.50');
+    const [creditsPerSem, setCreditsPerSem] = useState<string>('12');
+    const [advisorQuestion, setAdvisorQuestion] = useState<string>('');
+    const [advisorMessages, setAdvisorMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+
+    const goalAnalysis = useMemo(() => {
+        const curr = parseFloat(currentCGPA);
+        const done = parseFloat(completedCredits);
+        const total = parseFloat(totalDegreeCredits);
+        const target = parseFloat(targetCGPA);
+        const perSem = Math.max(1, parseFloat(creditsPerSem) || 12);
+
+        if (Number.isNaN(curr) || Number.isNaN(done) || Number.isNaN(total) || Number.isNaN(target)) {
+            return null;
+        }
+        const remaining = total - done;
+        if (remaining <= 0) {
+            return {
+                possible: curr >= target,
+                remaining: 0,
+                requiredGPA: 0,
+                maxCGPA: curr,
+                semestersLeft: 0,
+                summary: curr >= target
+                    ? `You already completed ${done}/${total} credits with ${curr.toFixed(2)} CGPA (goal ${target.toFixed(2)} achieved!).`
+                    : `All ${total} credits are completed at ${curr.toFixed(2)} CGPA. Only retaking lower-grade courses can raise it.`,
+            };
+        }
+
+        const requiredGPA = (target * total - curr * done) / remaining;
+        const maxCGPA = (curr * done + 4.0 * remaining) / total;
+        const semestersLeft = Math.ceil(remaining / perSem);
+        const possible = requiredGPA <= 4.0;
+
+        let summary = '';
+        if (requiredGPA <= 0) {
+            summary = `Your target ${target.toFixed(2)} is already secured—you just need to pass your remaining ${remaining} credits.`;
+        } else if (requiredGPA <= 3.3) {
+            summary = `Very achievable! You need an average of ${requiredGPA.toFixed(2)} GPA (B+ range) across your remaining ${remaining} credits (~${semestersLeft} semesters).`;
+        } else if (requiredGPA <= 3.75) {
+            summary = `Achievable with steady focus: you need ${requiredGPA.toFixed(2)} GPA average across ${remaining} remaining credits (~${semestersLeft} semesters).`;
+        } else if (requiredGPA <= 4.0) {
+            summary = `Tough but mathematically possible! You need ${requiredGPA.toFixed(2)} GPA average (mostly A/A- grades) in all ${remaining} remaining credits.`;
+        } else {
+            summary = `Not possible with ${remaining} remaining credits alone (would require ${requiredGPA.toFixed(2)} GPA > 4.00). Even getting straight 4.00s reaches ${maxCGPA.toFixed(2)} CGPA. Retaking low-grade courses can push it higher.`;
+        }
+
+        return { possible, remaining, requiredGPA, maxCGPA, semestersLeft, summary };
+    }, [currentCGPA, completedCredits, totalDegreeCredits, targetCGPA, creditsPerSem]);
+
+    const askAdvisor = (customPrompt?: string) => {
+        const q = (customPrompt ?? advisorQuestion).trim();
+        if (!q) return;
+        const curr = parseFloat(currentCGPA) || 0;
+        const done = parseFloat(completedCredits) || 0;
+        const total = parseFloat(totalDegreeCredits) || 136;
+
+        let reply = '';
+        if (!currentCGPA || !completedCredits) {
+            reply = 'Enter your Current CGPA and Completed Credits first so I can calculate your exact roadmap!';
+        } else if (!goalAnalysis) {
+            reply = 'Please enter valid numbers for Current CGPA, Completed Credits, Total Degree Credits, and Target CGPA.';
+        } else if (/retake|repeat|improve|f|d/i.test(q)) {
+            const boostOneCourse = ((curr * done + 3 * (4.0 - 1.0)) / done) - curr;
+            reply = `Replacing one 3-credit D (1.00) with an A (4.00) instantly boosts your current CGPA by +${boostOneCourse.toFixed(2)} (to ${(curr + boostOneCourse).toFixed(2)}) without adding extra total credits. Combined with your remaining ${goalAnalysis.remaining} credits, max CGPA rises to ${Math.min(4.0, (goalAnalysis.maxCGPA + (3 * 3.0) / total)).toFixed(2)}.`;
+        } else if (/max|highest|best/i.test(q)) {
+            reply = `With ${done} credits at ${curr.toFixed(2)} and ${goalAnalysis.remaining} credits left out of ${total}, the highest CGPA you can achieve (with straight 4.00s) is ${goalAnalysis.maxCGPA.toFixed(2)}.`;
+        } else {
+            reply = `${goalAnalysis.summary} (Max possible CGPA: ${goalAnalysis.maxCGPA.toFixed(2)}).`;
+        }
+
+        setAdvisorMessages((prev) => [...prev, { role: 'user', text: q }, { role: 'ai', text: reply }]);
+        if (!customPrompt) setAdvisorQuestion('');
+    };
 
     const addCourse = () => {
         setCourses([...courses, {
@@ -287,6 +362,140 @@ export default function CGPACalculator() {
                         </motion.div>
                     </div>
                 </div>
+
+                {/* Interactive CGPA Goal Advisor */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.45 }}
+                    className="mt-8 bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-purple-400/30 shadow-2xl"
+                >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-5">
+                        <div>
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-pink-400" />
+                                CGPA Goal Advisor
+                            </h2>
+                            <p className="text-xs text-purple-200">
+                                Check if your target CGPA is achievable before graduation and explore scenarios.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+                        <div>
+                            <label className="block text-xs text-purple-200 mb-1.5">Total Degree Credits</label>
+                            <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={totalDegreeCredits}
+                                onChange={(e) => setTotalDegreeCredits(e.target.value)}
+                                placeholder="136"
+                                className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-purple-200 mb-1.5">Target CGPA</label>
+                            <input
+                                type="number"
+                                min="0"
+                                max="4"
+                                step="0.01"
+                                value={targetCGPA}
+                                onChange={(e) => setTargetCGPA(e.target.value)}
+                                placeholder="3.50"
+                                className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-purple-200 mb-1.5">Avg. Credits / Semester</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="24"
+                                step="1"
+                                value={creditsPerSem}
+                                onChange={(e) => setCreditsPerSem(e.target.value)}
+                                placeholder="12"
+                                className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
+                        </div>
+                    </div>
+
+                    {goalAnalysis ? (
+                        <div className={`p-4 rounded-2xl border mb-5 ${goalAnalysis.possible
+                            ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-100'
+                            : 'bg-rose-500/15 border-rose-400/35 text-rose-100'}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <span className="text-sm font-extrabold">
+                                    {goalAnalysis.possible ? 'Goal is Achievable' : 'Goal Exceeds 4.00 Cap'}
+                                </span>
+                                <span className="text-xs font-mono font-bold">
+                                    Required Avg GPA: {Math.max(0, goalAnalysis.requiredGPA).toFixed(2)} • Max Possible: {goalAnalysis.maxCGPA.toFixed(2)}
+                                </span>
+                            </div>
+                            <p className="text-xs leading-relaxed">{goalAnalysis.summary}</p>
+                        </div>
+                    ) : (
+                        <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-400/20 text-xs text-purple-200 mb-5">
+                            Fill in your <strong>Current CGPA</strong> and <strong>Completed Credits</strong> above to see your required GPA and feasibility.
+                        </div>
+                    )}
+
+                    {/* Quick Questions & Interactive Advisor Chat */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                        {[
+                            'Is my target CGPA possible?',
+                            'What is the maximum CGPA I can reach?',
+                            'How much does retaking a low-grade course help?',
+                        ].map((q) => (
+                            <button
+                                key={q}
+                                onClick={() => askAdvisor(q)}
+                                className="px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/30 text-xs text-purple-100 transition-colors"
+                            >
+                                {q}
+                            </button>
+                        ))}
+                    </div>
+
+                    {advisorMessages.length > 0 && (
+                        <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar mb-3 p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
+                            {advisorMessages.map((m, idx) => (
+                                <div key={idx} className={`text-xs p-2.5 rounded-lg ${m.role === 'user'
+                                    ? 'bg-purple-600/30 text-white ml-8'
+                                    : 'bg-indigo-950/60 text-purple-100 mr-8 border border-purple-400/20'}`}>
+                                    <span className="font-bold mr-1.5">{m.role === 'user' ? 'You:' : 'Advisor:'}</span>
+                                    {m.text}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            askAdvisor();
+                        }}
+                        className="flex gap-2"
+                    >
+                        <input
+                            type="text"
+                            value={advisorQuestion}
+                            onChange={(e) => setAdvisorQuestion(e.target.value)}
+                            placeholder="Ask about your target CGPA, max possible, or retakes..."
+                            className="flex-1 bg-purple-950/50 border border-purple-400/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                        <button
+                            type="submit"
+                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold flex items-center gap-1.5"
+                        >
+                            <Send className="w-4 h-4" />
+                            Ask
+                        </button>
+                    </form>
+                </motion.div>
 
                 {/* Custom Scrollbar Styles */}
                 <style>{`
