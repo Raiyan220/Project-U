@@ -109,7 +109,8 @@ export class AiService {
       {
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents,
-        generationConfig: { temperature: 0.6, maxOutputTokens: 350 },
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.6, maxOutputTokens: 450 },
       },
       { timeout: 15000 },
     );
@@ -158,8 +159,18 @@ export class AiService {
   }
 
   private localFallbackReply(message: string, ctx: CgpaChatContext): string {
+    const lower = message.toLowerCase();
+
+    if (/^(hi|hello|hey|salam|assalam)/i.test(lower.trim())) {
+      return 'Hey! I am your UniFlow AI CGPA Mentor. Tell me your Current CGPA, Completed Credits, and Target CGPA (or fill them in the calculator) and ask me anything about reaching your goal or retaking courses!';
+    }
+
+    if (/\b(how|where|enter|use|start)\b/i.test(lower)) {
+      return 'Look at the "Current Academic Standing" box on the left: type your Current CGPA (e.g. 3.40) and Completed Credits (e.g. 90), then set your Target CGPA in the AI Mentor box. I will immediately calculate if it is achievable!';
+    }
+
     if (ctx.currentCGPA === undefined || ctx.completedCredits === undefined) {
-      return 'Enter your Current CGPA and Completed Credits above so I can analyze your exact numbers!';
+      return 'Please enter your Current CGPA and Completed Credits in the Current Academic Standing box (or open the CGPA Calculator page) so I can calculate your exact roadmap!';
     }
 
     const curr = ctx.currentCGPA;

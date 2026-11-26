@@ -1,6 +1,7 @@
 import { Link, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { AiMentorWidget } from '../components/AiMentorWidget';
 
 export default function LandingPage() {
     const { isAuthenticated, isLoading } = useAuth();
@@ -160,6 +161,7 @@ export default function LandingPage() {
                     </p>
                 </motion.div>
             </div>
+            <AiMentorWidget />
         </div>
     );
 }

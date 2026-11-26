@@ -5,6 +5,7 @@ import { courseService } from '../services/courseService';
 import { useEffect, useState, useCallback } from 'react';
 import type { Course } from '../types/course';
 import { LiveCourseTable } from '../components/LiveCourseTable';
+import { AiMentorWidget } from '../components/AiMentorWidget';
 import { useRealtimeSeats } from '../hooks/useRealtimeSeats';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, BellRing, Map as MapIcon, Zap } from 'lucide-react';
@@ -571,6 +572,7 @@ export default function Dashboard() {
                     </motion.div>
                 </motion.div>
             </div >
+            <AiMentorWidget />
         </div >
     );
 }

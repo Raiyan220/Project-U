@@ -460,7 +460,13 @@ export default function CGPACalculator() {
 
                             {(advisorMessages.length > 0 || advisorLoading) && (
                                 <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar mb-3 p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
-                                    {advisorMessages.map((m, idx) => (
+                                    {advisorLoading && (
+                                        <div className="text-xs p-2.5 rounded-lg bg-indigo-950/60 text-purple-200 mr-8 border border-purple-400/20 flex items-center gap-2">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            Thinking...
+                                        </div>
+                                    )}
+                                    {[...advisorMessages].reverse().map((m, idx) => (
                                         <div key={idx} className={`text-xs p-2.5 rounded-lg whitespace-pre-wrap ${m.role === 'user'
                                             ? 'bg-purple-600/30 text-white ml-8'
                                             : 'bg-indigo-950/60 text-purple-100 mr-8 border border-purple-400/20'}`}>
@@ -468,12 +474,6 @@ export default function CGPACalculator() {
                                             {m.text}
                                         </div>
                                     ))}
-                                    {advisorLoading && (
-                                        <div className="text-xs p-2.5 rounded-lg bg-indigo-950/60 text-purple-200 mr-8 border border-purple-400/20 flex items-center gap-2">
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                            Thinking...
-                                        </div>
-                                    )}
                                 </div>
                             )}
 
