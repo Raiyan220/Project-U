@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { HttpService } from '@nestjs/axios';
+import * as https from 'https';
+import type { ClientRequest, IncomingMessage } from 'http';
 import { PrismaService } from '../prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
 import { CoursesGateway } from './courses.gateway';
@@ -88,7 +90,10 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
   private recentSeatDrops: RecentSeatDrop[] = [];
   private isSyncing = false; // Lock to prevent concurrent syncs
   private isFirstSync = true; // Optimization flag for startup
-  private mercureAbortController: AbortController | null = null;
+  private mercureRequest: ClientRequest | null = null;
+  private mercureResponse: IncomingMessage | null = null;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private mercureTimer: ReturnType<typeof setTimeout> | null = null;
   private isShuttingDown = false;
 
   constructor(
@@ -100,36 +105,60 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
     private readonly trackingService: TrackingService,
   ) { }
 
-  async onModuleInit() {
-    // Load existing seat data to detect changes
-    const existingSections = await this.prisma.section.findMany({
-      select: {
-        id: true,
-        enrolled: true,
-        capacity: true,
-        _count: { select: { slots: true } },
-      },
-    });
-    existingSections.forEach((s) => {
-      this.previousSeatData.set(s.id, {
-        enrolled: s.enrolled,
-        capacity: s.capacity,
-        slotCount: s._count.slots,
-        scheduleHash: '', // Force signature check on first sync
-      });
-    });
-    // Run initial sync with a delay to allow server to startup fully
+  onModuleInit() {
+    // Do not block NestJS port binding during startup; initialize sync & Mercure after boot
     this.logger.log('Scheduled initial course sync in 5 seconds...');
-    setTimeout(() => {
-      void this.syncCourses();
+    this.startupTimer = setTimeout(() => {
+      void this.initializeAndSync();
     }, 5000);
-    // Subscribe to Mercure SSE for instant real-time seat updates
-    void this.startMercureStream();
+  }
+
+  private async initializeAndSync() {
+    if (this.isShuttingDown) return;
+    try {
+      const existingSections = await this.prisma.section.findMany({
+        select: {
+          id: true,
+          enrolled: true,
+          capacity: true,
+          _count: { select: { slots: true } },
+        },
+      });
+      existingSections.forEach((s) => {
+        this.previousSeatData.set(s.id, {
+          enrolled: s.enrolled,
+          capacity: s.capacity,
+          slotCount: s._count.slots,
+          scheduleHash: '', // Force signature check on first sync
+        });
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to preload section cache: ${(err as Error).message}`,
+      );
+    }
+
+    try {
+      await this.syncCourses();
+    } catch (err) {
+      this.logger.error(
+        `Initial syncCourses failed: ${(err as Error).message}`,
+      );
+    }
+
+    if (!this.isShuttingDown) {
+      this.mercureTimer = setTimeout(() => {
+        void this.startMercureStream();
+      }, 2000);
+    }
   }
 
   onModuleDestroy() {
     this.isShuttingDown = true;
-    this.mercureAbortController?.abort();
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    if (this.mercureTimer) clearTimeout(this.mercureTimer);
+    this.mercureResponse?.destroy();
+    this.mercureRequest?.destroy();
   }
 
   // Sync every 30 seconds for near real-time updates (fastest safe option)
@@ -847,60 +876,18 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Subscribe to Eniamza's Mercure SSE stream for instant seat-status updates.
-   * Reconnects automatically with exponential backoff on disconnect or error.
+   * Subscribe to Eniamza's Mercure SSE stream using Node's native https stream
+   * (lightweight memory footprint, avoids undici WebStream issues).
    */
   private async startMercureStream() {
     let backoffMs = 2000;
 
     while (!this.isShuttingDown) {
-      this.mercureAbortController = new AbortController();
       try {
         this.logger.log(`Connecting to Mercure SSE stream: ${this.MERCURE_URL}`);
-        const response = await fetch(this.MERCURE_URL, {
-          headers: { Accept: 'text/event-stream' },
-          signal: this.mercureAbortController.signal,
+        await this.consumeMercureOnce(() => {
+          backoffMs = 2000;
         });
-
-        if (!response.ok || !response.body) {
-          throw new Error(`Mercure HTTP ${response.status}`);
-        }
-
-        backoffMs = 2000;
-        this.logger.log('Connected to Mercure SSE seatstatus stream');
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (!this.isShuttingDown) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split(/\r?\n\r?\n/);
-          buffer = frames.pop() ?? '';
-
-          for (const frame of frames) {
-            const dataLines = frame
-              .split(/\r?\n/)
-              .filter((line) => line.startsWith('data:'))
-              .map((line) => line.slice(5).trimStart());
-
-            if (dataLines.length === 0) continue;
-
-            try {
-              const payload = JSON.parse(dataLines.join('\n')) as MercureSeatPayload;
-              if (payload?.seatStatus && Object.keys(payload.seatStatus).length > 0) {
-                await this.handleMercureSeatStatus(payload.seatStatus);
-              }
-            } catch (parseErr) {
-              this.logger.warn(
-                `Failed to parse Mercure SSE payload: ${(parseErr as Error).message}`,
-              );
-            }
-          }
-        }
       } catch (err) {
         if (this.isShuttingDown) break;
         this.logger.warn(
@@ -912,6 +899,76 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       backoffMs = Math.min(backoffMs * 2, 30000);
     }
+  }
+
+  private consumeMercureOnce(onConnected: () => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const req = https.get(
+        this.MERCURE_URL,
+        { headers: { Accept: 'text/event-stream' } },
+        (res) => {
+          this.mercureResponse = res;
+          if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+            res.resume();
+            reject(new Error(`Mercure HTTP ${res.statusCode ?? 'unknown'}`));
+            return;
+          }
+
+          onConnected();
+          this.logger.log('Connected to Mercure SSE seatstatus stream');
+
+          let buffer = '';
+          let processingQueue = Promise.resolve();
+
+          res.setEncoding('utf8');
+          res.on('data', (chunk: string) => {
+            if (this.isShuttingDown) return;
+            buffer += chunk;
+            const frames = buffer.split(/\r?\n\r?\n/);
+            buffer = frames.pop() ?? '';
+
+            for (const frame of frames) {
+              const dataLines = frame
+                .split(/\r?\n/)
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart());
+
+              if (dataLines.length === 0) continue;
+
+              const rawJson = dataLines.join('\n');
+              processingQueue = processingQueue.then(async () => {
+                try {
+                  const payload = JSON.parse(rawJson) as MercureSeatPayload;
+                  if (
+                    payload?.seatStatus &&
+                    Object.keys(payload.seatStatus).length > 0
+                  ) {
+                    await this.handleMercureSeatStatus(payload.seatStatus);
+                  }
+                } catch (parseErr) {
+                  this.logger.warn(
+                    `Failed to parse Mercure SSE payload: ${(parseErr as Error).message}`,
+                  );
+                }
+              });
+            }
+          });
+
+          res.on('end', () => {
+            void processingQueue.finally(resolve);
+          });
+
+          res.on('error', (err) => {
+            reject(err);
+          });
+        },
+      );
+
+      this.mercureRequest = req;
+      req.on('error', (err) => {
+        reject(err);
+      });
+    });
   }
 
   private async handleMercureSeatStatus(
