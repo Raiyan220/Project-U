@@ -919,20 +919,23 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       available: number;
       status: string;
     }[] = [];
+    const dbUpdates: Promise<unknown>[] = [];
 
     for (const { sectionId, newEnrolled } of entries) {
       const dbSec = sectionMap.get(sectionId);
       if (!dbSec || dbSec.enrolled === newEnrolled) continue;
 
       const newStatus = newEnrolled >= dbSec.capacity ? 'CLOSED' : 'OPEN';
-      await this.prisma.section.update({
-        where: { id: sectionId },
-        data: {
-          enrolled: newEnrolled,
-          status: newStatus,
-          lastUpdated: new Date(),
-        },
-      });
+      dbUpdates.push(
+        this.prisma.section.update({
+          where: { id: sectionId },
+          data: {
+            enrolled: newEnrolled,
+            status: newStatus,
+            lastUpdated: new Date(),
+          },
+        }),
+      );
 
       const prev = this.previousSeatData.get(sectionId);
       this.previousSeatData.set(sectionId, {
@@ -954,7 +957,7 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (available > 0) {
-        await this.handleSeatOpening(
+        void this.handleSeatOpening(
           sectionId,
           dbSec.course.code,
           dbSec.sectionNumber,
@@ -964,6 +967,7 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (seatUpdates.length > 0) {
+      await Promise.all(dbUpdates);
       this.logger.log(
         `Mercure SSE: Updated & broadcasting ${seatUpdates.length} real-time seat changes`,
       );

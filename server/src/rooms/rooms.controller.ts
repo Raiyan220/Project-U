@@ -16,26 +16,27 @@ export class RoomsController {
     @Query('time') time?: string, // Format: HHMM (e.g. 0830)
     @Query('building') building?: string,
   ) {
+    // Always default to Bangladesh Standard Time (Asia/Dhaka, UTC+6) instead of server UTC
     const now = new Date();
+    const dhakaParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Dhaka',
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
 
-    // Default to current day and time if not provided
-    const days = [
-      'SUNDAY',
-      'MONDAY',
-      'TUESDAY',
-      'WEDNESDAY',
-      'THURSDAY',
-      'FRIDAY',
-      'SATURDAY',
-    ];
-    const currentDay = day || days[now.getDay()];
+    const partMap = Object.fromEntries(
+      dhakaParts.map((p) => [p.type, p.value]),
+    );
+    const currentDay = (day || partMap.weekday || 'SUNDAY').toUpperCase();
 
     let currentTime: number;
     if (time) {
       currentTime = parseInt(time, 10);
     } else {
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
+      const hours = parseInt(partMap.hour || '0', 10);
+      const minutes = parseInt(partMap.minute || '0', 10);
       currentTime = hours * 100 + minutes;
     }
 

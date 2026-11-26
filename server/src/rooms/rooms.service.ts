@@ -183,10 +183,13 @@ export class RoomsService {
       const nextClassStart = roomNextClassMap.get(key);
 
       if (occupied) {
+        const courseLabel = occupied.section?.course?.code
+          ? `${occupied.section.course.code} (${occupied.section.sectionNumber})`
+          : 'Scheduled Class';
         return {
           ...room,
           status: 'BUSY',
-          currentClass: `${occupied.section.course.code} (${occupied.section.sectionNumber})`,
+          currentClass: courseLabel,
           busyUntil: occupied.endTime,
         };
       } else {
