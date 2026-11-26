@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Calculator, Sparkles, Send } from 'lucide-react';
+import { Plus, Trash2, Calculator, Sparkles, Send, Loader2 } from 'lucide-react';
+import { api } from '../lib/axios';
 
 interface Course {
     id: string;
@@ -38,6 +39,8 @@ export default function CGPACalculator() {
     const [creditsPerSem, setCreditsPerSem] = useState<string>('12');
     const [advisorQuestion, setAdvisorQuestion] = useState<string>('');
     const [advisorMessages, setAdvisorMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+    const [advisorLoading, setAdvisorLoading] = useState(false);
+    const [advisorProvider, setAdvisorProvider] = useState<string | null>(null);
 
     const goalAnalysis = useMemo(() => {
         const curr = parseFloat(currentCGPA);
@@ -84,29 +87,54 @@ export default function CGPACalculator() {
         return { possible, remaining, requiredGPA, maxCGPA, semestersLeft, summary };
     }, [currentCGPA, completedCredits, totalDegreeCredits, targetCGPA, creditsPerSem]);
 
-    const askAdvisor = (customPrompt?: string) => {
+    const askAdvisor = async (customPrompt?: string) => {
         const q = (customPrompt ?? advisorQuestion).trim();
-        if (!q) return;
-        const curr = parseFloat(currentCGPA) || 0;
-        const done = parseFloat(completedCredits) || 0;
-        const total = parseFloat(totalDegreeCredits) || 136;
+        if (!q || advisorLoading) return;
 
-        let reply = '';
-        if (!currentCGPA || !completedCredits) {
-            reply = 'Enter your Current CGPA and Completed Credits first so I can calculate your exact roadmap!';
-        } else if (!goalAnalysis) {
-            reply = 'Please enter valid numbers for Current CGPA, Completed Credits, Total Degree Credits, and Target CGPA.';
-        } else if (/retake|repeat|improve|f|d/i.test(q)) {
-            const boostOneCourse = ((curr * done + 3 * (4.0 - 1.0)) / done) - curr;
-            reply = `Replacing one 3-credit D (1.00) with an A (4.00) instantly boosts your current CGPA by +${boostOneCourse.toFixed(2)} (to ${(curr + boostOneCourse).toFixed(2)}) without adding extra total credits. Combined with your remaining ${goalAnalysis.remaining} credits, max CGPA rises to ${Math.min(4.0, (goalAnalysis.maxCGPA + (3 * 3.0) / total)).toFixed(2)}.`;
-        } else if (/max|highest|best/i.test(q)) {
-            reply = `With ${done} credits at ${curr.toFixed(2)} and ${goalAnalysis.remaining} credits left out of ${total}, the highest CGPA you can achieve (with straight 4.00s) is ${goalAnalysis.maxCGPA.toFixed(2)}.`;
-        } else {
-            reply = `${goalAnalysis.summary} (Max possible CGPA: ${goalAnalysis.maxCGPA.toFixed(2)}).`;
-        }
-
-        setAdvisorMessages((prev) => [...prev, { role: 'user', text: q }, { role: 'ai', text: reply }]);
+        const nextHistory = [...advisorMessages, { role: 'user' as const, text: q }];
+        setAdvisorMessages(nextHistory);
         if (!customPrompt) setAdvisorQuestion('');
+        setAdvisorLoading(true);
+
+        try {
+            const curr = currentCGPA ? parseFloat(currentCGPA) : undefined;
+            const done = completedCredits ? parseFloat(completedCredits) : undefined;
+            const total = totalDegreeCredits ? parseFloat(totalDegreeCredits) : 136;
+            const target = targetCGPA ? parseFloat(targetCGPA) : undefined;
+            const perSem = creditsPerSem ? parseFloat(creditsPerSem) : 12;
+
+            const res = await api.post<{ reply: string; provider: string }>('/ai/cgpa-chat', {
+                message: q,
+                history: advisorMessages.slice(-8),
+                context: {
+                    currentCGPA: curr,
+                    completedCredits: done,
+                    totalDegreeCredits: total,
+                    targetCGPA: target,
+                    creditsPerSem: perSem,
+                    requiredGPA: goalAnalysis?.requiredGPA,
+                    maxCGPA: goalAnalysis?.maxCGPA,
+                    remainingCredits: goalAnalysis?.remaining,
+                    semesterGPA: parseFloat(calculateSemesterGPA()),
+                    semesterCredits: getTotalCredits(),
+                },
+            });
+
+            setAdvisorProvider(res.data.provider);
+            setAdvisorMessages([...nextHistory, { role: 'ai', text: res.data.reply }]);
+        } catch {
+            setAdvisorMessages([
+                ...nextHistory,
+                {
+                    role: 'ai',
+                    text: goalAnalysis
+                        ? `${goalAnalysis.summary} (Max possible CGPA: ${goalAnalysis.maxCGPA.toFixed(2)})`
+                        : 'Could not reach the AI advisor right now—please try again in a moment.',
+                },
+            ]);
+        } finally {
+            setAdvisorLoading(false);
+        }
     };
 
     const addCourse = () => {
@@ -375,6 +403,11 @@ export default function CGPACalculator() {
                             <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                 <Sparkles className="w-5 h-5 text-pink-400" />
                                 CGPA Goal Advisor
+                                {advisorProvider && (
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-purple-500/30 border border-purple-400/40 text-purple-200">
+                                        {advisorProvider === 'gemini' ? 'Gemini AI' : advisorProvider === 'groq' ? 'Groq AI' : 'Smart Mode'}
+                                    </span>
+                                )}
                             </h2>
                             <p className="text-xs text-purple-200">
                                 Check if your target CGPA is achievable before graduation and explore scenarios.
@@ -460,23 +493,29 @@ export default function CGPACalculator() {
                         ))}
                     </div>
 
-                    {advisorMessages.length > 0 && (
-                        <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar mb-3 p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
+                    {(advisorMessages.length > 0 || advisorLoading) && (
+                        <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar mb-3 p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
                             {advisorMessages.map((m, idx) => (
-                                <div key={idx} className={`text-xs p-2.5 rounded-lg ${m.role === 'user'
+                                <div key={idx} className={`text-xs p-2.5 rounded-lg whitespace-pre-wrap ${m.role === 'user'
                                     ? 'bg-purple-600/30 text-white ml-8'
                                     : 'bg-indigo-950/60 text-purple-100 mr-8 border border-purple-400/20'}`}>
                                     <span className="font-bold mr-1.5">{m.role === 'user' ? 'You:' : 'Advisor:'}</span>
                                     {m.text}
                                 </div>
                             ))}
+                            {advisorLoading && (
+                                <div className="text-xs p-2.5 rounded-lg bg-indigo-950/60 text-purple-200 mr-8 border border-purple-400/20 flex items-center gap-2">
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    Thinking...
+                                </div>
+                            )}
                         </div>
                     )}
 
                     <form
                         onSubmit={(e) => {
                             e.preventDefault();
-                            askAdvisor();
+                            void askAdvisor();
                         }}
                         className="flex gap-2"
                     >
@@ -484,12 +523,13 @@ export default function CGPACalculator() {
                             type="text"
                             value={advisorQuestion}
                             onChange={(e) => setAdvisorQuestion(e.target.value)}
-                            placeholder="Ask about your target CGPA, max possible, or retakes..."
+                            placeholder="Ask anything about your CGPA, retakes, or semester plan..."
                             className="flex-1 bg-purple-950/50 border border-purple-400/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
                         />
                         <button
                             type="submit"
-                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold flex items-center gap-1.5"
+                            disabled={advisorLoading}
+                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold flex items-center gap-1.5 disabled:opacity-50"
                         >
                             <Send className="w-4 h-4" />
                             Ask

@@ -11,6 +11,7 @@ import { MailModule } from './mail/mail.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { AdminModule } from './admin/admin.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FeedbackModule } from './feedback/feedback.module';
     RoomsModule,
     AdminModule,
     FeedbackModule,
+    AiModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
