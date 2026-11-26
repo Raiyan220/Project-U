@@ -364,35 +364,72 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.logger.log(
-        `Found ${uniqueCourses.size} unique courses. Upserting...`,
+        `Found ${uniqueCourses.size} unique courses. Syncing courses in bulk...`,
       );
       const courseCodeToIdMap = new Map<string, string>();
+
+      // Bulk fetch existing courses in 1 query instead of 551 sequential upserts
+      if (this.courseCodeToIdCache.size < uniqueCourses.size) {
+        const existingCourses = await this.prisma.course.findMany({
+          select: { id: true, code: true, title: true },
+        });
+        const existingMap = new Map(existingCourses.map((c) => [c.code, c]));
+
+        const missingCourses: { code: string; title: string; department: string }[] = [];
+        const titlesToUpdate: { id: string; title: string; dept: string }[] = [];
+
+        for (const code of uniqueCourses) {
+          const details = courseDetails.get(code);
+          const existing = existingMap.get(code);
+          if (existing) {
+            this.courseCodeToIdCache.set(code, existing.id);
+            if (details?.title && existing.title !== details.title) {
+              titlesToUpdate.push({
+                id: existing.id,
+                title: details.title,
+                dept: details.dept || 'Unknown',
+              });
+            }
+          } else {
+            missingCourses.push({
+              code,
+              title: details?.title || code,
+              department: details?.dept || 'Unknown',
+            });
+          }
+        }
+
+        if (missingCourses.length > 0) {
+          await this.prisma.course.createMany({
+            data: missingCourses,
+            skipDuplicates: true,
+          });
+          const created = await this.prisma.course.findMany({
+            where: { code: { in: missingCourses.map((m) => m.code) } },
+            select: { id: true, code: true },
+          });
+          created.forEach((c) => this.courseCodeToIdCache.set(c.code, c.id));
+        }
+
+        if (titlesToUpdate.length > 0) {
+          const TITLE_BATCH = 25;
+          for (let i = 0; i < titlesToUpdate.length; i += TITLE_BATCH) {
+            await Promise.all(
+              titlesToUpdate.slice(i, i + TITLE_BATCH).map((t) =>
+                this.prisma.course.update({
+                  where: { id: t.id },
+                  data: { title: t.title, department: t.dept },
+                }),
+              ),
+            );
+          }
+        }
+      }
 
       for (const code of uniqueCourses) {
         const cachedId = this.courseCodeToIdCache.get(code);
         if (cachedId) {
           courseCodeToIdMap.set(code, cachedId);
-          continue;
-        }
-
-        const details = courseDetails.get(code);
-        try {
-          const course = await this.prisma.course.upsert({
-            where: { code: code },
-            update: {
-              title: details?.title,
-              department: details?.dept,
-            },
-            create: {
-              code: code,
-              title: details?.title || code,
-              department: details?.dept || 'Unknown',
-            },
-          });
-          courseCodeToIdMap.set(code, course.id);
-          this.courseCodeToIdCache.set(code, course.id);
-        } catch (e) {
-          this.logger.error(`Failed to upsert course ${code}: ${e}`);
         }
       }
 
@@ -424,9 +461,9 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
           }
           // Check for schedule/room changes
           if (prev.scheduleHash !== currentHash) {
-            // Optimization: On first sync, if slots exist, assume they are correct to avoid massive DB churn
+            // Optimization: On first sync, if slots exist, record hash so sync #2 doesn't wipe all slots
             if (this.isFirstSync && prev.slotCount > 0) {
-              // Skip update
+              prev.scheduleHash = currentHash;
             } else {
               needsUpdate = true;
               needsSlotReset = true;
