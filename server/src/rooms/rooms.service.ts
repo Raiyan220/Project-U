@@ -17,17 +17,20 @@ export class RoomsService {
 
   constructor(private readonly prisma: PrismaService) { }
 
-  // Check if a building code is valid (starts with digits like "07A", "10B", or is "UB"/"TBA")
+  // Check if a building code is valid (main floors "07A", ANNEX "AN1"/"ANG", "AS1"/"ASG", or "UB"/"TBA")
   private isValidBuilding(building: string): boolean {
     if (!building) return false;
     if (building === 'UB' || building === 'TBA') return true;
-    // Valid building codes start with digits (e.g., "07A", "10B", "7A")
+    if (/^(AN|AS)[0-9G]+$/i.test(building)) return true;
+    // Valid main-building floor codes start with digits (e.g., "07A", "10B", "7A")
     return /^\d+[A-Za-z]?$/.test(building);
   }
 
-  // Extract floor number from building code (e.g., "07A" -> "7", "10B" -> "10", "UB" -> "UB")
+  // Extract floor/building group from building code (e.g., "07A" -> "7", "AN1" -> "ANNEX", "AS1" -> "AS", "UB" -> "UB")
   private extractFloor(building: string): string | null {
     if (building === 'UB' || building === 'TBA') return 'UB';
+    if (/^AN[0-9G]+$/i.test(building)) return 'ANNEX';
+    if (/^AS[0-9G]+$/i.test(building)) return 'AS';
     // Match building codes that start with digits (e.g., "07A", "10B")
     const match = building.match(/^(\d+)/);
     if (match) {
@@ -82,10 +85,14 @@ export class RoomsService {
         if (floor) floors.add(floor);
       });
       this.floorCache = [...floors].sort((a, b) => {
-        // Sort numerically, with "UB" at the end
-        if (a === 'UB') return 1;
-        if (b === 'UB') return -1;
-        return parseInt(a) - parseInt(b);
+        // Put ANNEX first among named buildings, numeric floors sorted ascending, AS & UB at the end
+        const order = (val: string) => {
+          if (val === 'ANNEX') return 1000;
+          if (val === 'AS') return 1001;
+          if (val === 'UB') return 1002;
+          return parseInt(val, 10);
+        };
+        return order(a) - order(b);
       });
 
       this.lastCacheTime = now;
@@ -115,23 +122,35 @@ export class RoomsService {
     const timeInMins = this.toMinutes(time);
 
     let targetRooms = rooms;
-    if (floor && floor !== 'UB') {
-      // Filter by floor prefix (e.g., floor "7" matches buildings "07A", "07B", "7A", "7B", etc.)
-      const floorNum = parseInt(floor, 10);
-      targetRooms = rooms.filter((r) => {
-        const roomFloor = this.extractFloor(r.building);
-        return roomFloor !== null && parseInt(roomFloor, 10) === floorNum;
-      });
+    if (floor === 'ANNEX') {
+      targetRooms = rooms.filter((r) => /^AN/i.test(r.building));
+    } else if (floor === 'AS') {
+      targetRooms = rooms.filter((r) => /^AS/i.test(r.building));
     } else if (floor === 'UB') {
       targetRooms = rooms.filter(
         (r) => r.building === 'UB' || r.building === 'TBA',
       );
+    } else if (floor) {
+      // Filter by numeric floor prefix (e.g., floor "7" matches buildings "07A", "07B", "7A", "7B", etc.)
+      const floorNum = parseInt(floor, 10);
+      targetRooms = rooms.filter((r) => {
+        const roomFloor = this.extractFloor(r.building);
+        return roomFloor !== null && /^\d+$/.test(roomFloor) && parseInt(roomFloor, 10) === floorNum;
+      });
     }
 
     // 2. Find currently occupied rooms and their classes
     // Build the building filter based on floor
     let buildingFilter: any = {};
-    if (floor && floor !== 'UB') {
+    if (floor === 'ANNEX') {
+      buildingFilter = { building: { startsWith: 'AN' } };
+    } else if (floor === 'AS') {
+      buildingFilter = { building: { startsWith: 'AS' } };
+    } else if (floor === 'UB') {
+      buildingFilter = {
+        OR: [{ building: 'UB' }, { building: 'TBA' }],
+      };
+    } else if (floor) {
       const floorNum = parseInt(floor, 10);
       // Match buildings that start with the floor number (with or without leading zero)
       const paddedFloor = floorNum.toString().padStart(2, '0');
@@ -140,10 +159,6 @@ export class RoomsService {
           { building: { startsWith: paddedFloor } },
           { building: { startsWith: floorNum.toString() } },
         ],
-      };
-    } else if (floor === 'UB') {
-      buildingFilter = {
-        OR: [{ building: 'UB' }, { building: 'TBA' }],
       };
     }
 
