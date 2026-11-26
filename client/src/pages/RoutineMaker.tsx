@@ -1,11 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import html2canvas from 'html2canvas';
 import { courseService } from '../services/courseService';
-import type { Course, Section } from '../types/course';
+import type { Course, Section, RoomSlot } from '../types/course';
+import { useRealtimeSeats } from '../hooks/useRealtimeSeats';
 import { Link } from 'react-router-dom';
-import { Sparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Sparkles, AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
+
+const ROUTINE_STORAGE_KEY = 'uniflow_routine_sections_v1';
 
 type SectionWithCode = Section & { _displayCode?: string };
 
@@ -45,10 +48,19 @@ const sectionsOverlap = (a: Section, b: Section): boolean => {
 
 export default function RoutineMaker() {
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedSections, setSelectedSections] = useState<SectionWithCode[]>([]);
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const [selectedSections, setSelectedSections] = useState<SectionWithCode[]>(() => {
+        try {
+            const raw = localStorage.getItem(ROUTINE_STORAGE_KEY);
+            return raw ? (JSON.parse(raw) as SectionWithCode[]) : [];
+        } catch {
+            return [];
+        }
+    });
     const [focusedSection, setFocusedSection] = useState<{ courseCode: string; courseTitle: string; section: Section } | null>(null);
     const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
+    const queryClient = useQueryClient();
 
     // Smart Auto-Routine Generator state
     const [showAutoGen, setShowAutoGen] = useState(false);
@@ -60,9 +72,65 @@ export default function RoutineMaker() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedRoutines, setGeneratedRoutines] = useState<GeneratedRoutine[]>([]);
 
+    // Persist routine across refreshes & navigation
+    useEffect(() => {
+        try {
+            localStorage.setItem(ROUTINE_STORAGE_KEY, JSON.stringify(selectedSections));
+        } catch {
+            // Ignore storage quota errors
+        }
+    }, [selectedSections]);
+
+    // Debounce search query
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 250);
+        return () => clearTimeout(t);
+    }, [searchQuery]);
+
+    // Real-time seat updates in Routine Builder
+    const handleSeatUpdate = useCallback((updates: {
+        sectionId: string;
+        enrolled: number;
+        capacity: number;
+        status: string;
+    }[]) => {
+        const updateMap = new Map(updates.map((u) => [u.sectionId, u]));
+        queryClient.setQueriesData<Course[]>({ queryKey: ['courses'] }, (old) => {
+            if (!old) return old;
+            return old.map((c) => ({
+                ...c,
+                sections: c.sections?.map((s) => {
+                    const u = updateMap.get(s.id);
+                    if (!u) return s;
+                    return {
+                        ...s,
+                        enrolled: u.enrolled,
+                        capacity: u.capacity,
+                        status: (u.status === 'CLOSED' ? 'CLOSED' : 'OPEN') as 'OPEN' | 'CLOSED',
+                    };
+                }),
+            }));
+        });
+        setSelectedSections((prev) =>
+            prev.map((s) => {
+                const u = updateMap.get(s.id);
+                if (!u) return s;
+                return {
+                    ...s,
+                    enrolled: u.enrolled,
+                    capacity: u.capacity,
+                    status: (u.status === 'CLOSED' ? 'CLOSED' : 'OPEN') as 'OPEN' | 'CLOSED',
+                };
+            }),
+        );
+    }, [queryClient]);
+
+    useRealtimeSeats({ onSeatUpdate: handleSeatUpdate });
+
     const { data: courses, isLoading } = useQuery({
-        queryKey: ['courses', searchQuery],
-        queryFn: () => courseService.getAllCourses(searchQuery),
+        queryKey: ['courses', debouncedQuery],
+        queryFn: () => courseService.getAllCourses(debouncedQuery),
+        staleTime: 30_000,
     });
 
     // Auto-dismiss notification
@@ -94,10 +162,12 @@ export default function RoutineMaker() {
         const q = searchQuery.toLowerCase();
 
         Object.keys(groups).forEach(code => {
-            // Check if code matches or any section number matches
+            // Match course code, course title, or section number
             const codeMatch = code.toLowerCase().includes(q);
             const sections = groups[code].filter(item =>
-                codeMatch || item.section.sectionNumber.toString().includes(q)
+                codeMatch ||
+                item.courseTitle.toLowerCase().includes(q) ||
+                item.section.sectionNumber.toString().includes(q)
             );
 
             if (sections.length > 0) {
@@ -391,7 +461,7 @@ export default function RoutineMaker() {
         return `${formattedH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
     };
 
-    // Helper to render grid
+    // Helper to render grid (includes standard + evening slots)
     const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
     const timeSlots = [
         { start: 800, end: 920, label: '08:00-09:20' },
@@ -401,18 +471,20 @@ export default function RoutineMaker() {
         { start: 1400, end: 1520, label: '02:00-03:20' },
         { start: 1530, end: 1650, label: '03:30-04:50' },
         { start: 1700, end: 1820, label: '05:00-06:20' },
+        { start: 1830, end: 2020, label: '06:30-08:20' },
     ];
 
-    const getCourseForSlot = (day: string, slotStart: number, slotEnd: number) => {
+    const getCoursesForSlot = (day: string, slotStart: number, slotEnd: number) => {
+        const matches: { section: SectionWithCode; slot: RoomSlot }[] = [];
         for (const sec of selectedSections) {
-            const matchedSlot = sec.slots?.find(
-                (s) => s.day === day && s.startTime >= slotStart - 5 && s.startTime < slotEnd - 5,
+            const matchedSlots = (sec.slots || []).filter(
+                (s) => s.day === day && s.startTime < slotEnd && s.endTime > slotStart,
             );
-            if (matchedSlot) {
-                return { section: sec, slot: matchedSlot };
+            for (const sl of matchedSlots) {
+                matches.push({ section: sec, slot: sl });
             }
         }
-        return null;
+        return matches;
     };
 
     const toggleCourse = (code: string) => {
@@ -591,10 +663,10 @@ export default function RoutineMaker() {
                 </AnimatePresence>
 
                 {/* Top Section: 3 Columns Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-6 h-[600px] lg:h-[600px]">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-6 lg:h-[580px]">
 
                     {/* COL 1: Available Courses (Accordion) (3 cols) */}
-                    <div className="lg:col-span-3 flex flex-col h-full bg-black/20 rounded-2xl border border-white/10 overflow-hidden backdrop-blur-md">
+                    <div className="lg:col-span-3 flex flex-col h-[380px] lg:h-full bg-black/20 rounded-2xl border border-white/10 overflow-hidden backdrop-blur-md">
                         <div className="p-4 border-b border-white/10 bg-white/5">
                             <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-2">Select Course</h2>
                             <div className="relative">
@@ -680,8 +752,8 @@ export default function RoutineMaker() {
                         </div>
                     </div>
 
-                    {/* COL 2: Info (5 cols) */}
-                    <div className="lg:col-span-6 flex flex-col h-full bg-indigo-900/40 rounded-2xl border border-indigo-500/30 overflow-hidden backdrop-blur-xl relative">
+                    {/* COL 2: Info (6 cols) */}
+                    <div className="lg:col-span-6 flex flex-col h-[420px] lg:h-full bg-indigo-900/40 rounded-2xl border border-indigo-500/30 overflow-hidden backdrop-blur-xl relative">
                         {focusedSection ? (
                             <div className="h-full flex flex-col p-6 overflow-y-auto custom-scrollbar">
                                 <div className="flex justify-between items-start mb-6">
@@ -711,15 +783,22 @@ export default function RoutineMaker() {
                                 </div>
 
                                 <div className="bg-black/20 p-4 rounded-xl border border-white/5 mb-6 flex-1">
-                                    <p className="text-[10px] text-gray-400 uppercase font-bold mb-3">Schedule</p>
+                                    <p className="text-[10px] text-gray-400 uppercase font-bold mb-3">Class &amp; Lab Schedule</p>
                                     <div className="space-y-2">
-                                        {focusedSection.section.slots?.filter(s => s.type === 'CLASS').map((s, i) => (
-                                            <div key={i} className="flex items-center text-sm bg-white/5 p-2 rounded-lg">
-                                                <span className="font-bold text-white w-20">{s.day}</span>
-                                                <span className="text-indigo-200 font-mono">{formatTime(s.startTime)} - {formatTime(s.endTime)}</span>
-                                                <span className="ml-auto text-xs bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-300">{s.roomNumber}</span>
-                                            </div>
-                                        ))}
+                                        {focusedSection.section.slots && focusedSection.section.slots.length > 0 ? (
+                                            focusedSection.section.slots.map((s, i) => (
+                                                <div key={i} className="flex items-center text-sm bg-white/5 p-2 rounded-lg gap-2">
+                                                    <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${s.type === 'LAB' ? 'bg-pink-500/30 text-pink-200' : 'bg-indigo-500/30 text-indigo-200'}`}>
+                                                        {s.type}
+                                                    </span>
+                                                    <span className="font-bold text-white w-24">{s.day}</span>
+                                                    <span className="text-indigo-200 font-mono text-xs">{formatTime(s.startTime)} - {formatTime(s.endTime)}</span>
+                                                    <span className="ml-auto text-xs bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-300">{s.roomNumber}</span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-xs text-gray-400 italic">Schedule TBA</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -745,18 +824,32 @@ export default function RoutineMaker() {
                         )}
                     </div>
 
-                    {/* COL 3: Selected (4 cols) -> Adjusted to 3 to fit grid 12? No, I used 3-6-3 = 12 */}
-                    <div className="lg:col-span-3 flex flex-col h-full bg-white/5 rounded-2xl border border-white/10 backdrop-blur-xl overflow-hidden">
+                    {/* COL 3: Selected (3 cols) */}
+                    <div className="lg:col-span-3 flex flex-col h-[360px] lg:h-full bg-white/5 rounded-2xl border border-white/10 backdrop-blur-xl overflow-hidden">
                         <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center">
-                            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Selected</h2>
-                            <span className="bg-purple-600 px-2 py-0.5 rounded textxs font-bold shadow">{selectedSections.length}</span>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Selected</h2>
+                                <span className="bg-purple-600 px-2 py-0.5 rounded text-xs font-bold shadow">{selectedSections.length}</span>
+                            </div>
+                            {selectedSections.length > 0 && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedSections([]);
+                                        setNotification({ type: 'success', message: 'Cleared routine' });
+                                    }}
+                                    className="text-[11px] text-red-300 hover:text-red-200 inline-flex items-center gap-1 font-semibold"
+                                    title="Clear all selected sections"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Clear
+                                </button>
+                            )}
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-2">
                             {selectedSections.map(sec => (
                                 <div key={sec.id} className="bg-indigo-600/20 border border-indigo-500/30 p-2.5 rounded-lg group">
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            {/* @ts-ignore */}
                                             <div className="font-bold text-sm text-white">{sec._displayCode || sec.courseId} <span className="text-xs font-normal text-indigo-300">Sec {sec.sectionNumber}</span></div>
                                             <div className="text-[10px] text-gray-400">{sec.facultyInitials}</div>
                                         </div>
@@ -770,17 +863,23 @@ export default function RoutineMaker() {
                                         </button>
                                     </div>
                                     <div className="mt-1 space-y-0.5">
-                                        {sec.slots?.filter(s => s.type === 'CLASS').map((s, idx) => (
-                                            <div key={idx} className="flex justify-between text-[10px] text-indigo-200">
-                                                <span>{s.day.slice(0, 3)}</span>
-                                                <span>{formatTime(s.startTime)}</span>
-                                            </div>
-                                        ))}
+                                        {sec.slots && sec.slots.length > 0 ? (
+                                            sec.slots.map((s, idx) => (
+                                                <div key={idx} className={`flex justify-between text-[10px] ${s.type === 'LAB' ? 'text-pink-300' : 'text-indigo-200'}`}>
+                                                    <span>{s.day.slice(0, 3)} {s.type === 'LAB' ? '(LAB)' : ''}</span>
+                                                    <span>{formatTime(s.startTime)}</span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-[10px] text-gray-400 italic">Schedule TBA</div>
+                                        )}
                                     </div>
                                 </div>
                             ))}
                             {selectedSections.length === 0 && (
-                                <div className="text-center text-gray-500 text-xs mt-10">Empty routine</div>
+                                <div className="text-center text-gray-400 text-xs mt-10 px-4">
+                                    Empty routine — click ADD on a course section or use the Smart Auto-Routine Generator.
+                                </div>
                             )}
                         </div>
                     </div>
@@ -822,23 +921,27 @@ export default function RoutineMaker() {
                                                 {slot.label}
                                             </td>
                                             {days.map((day) => {
-                                                const match = getCourseForSlot(day, slot.start, slot.end);
-                                                const courseTuple = match?.section;
-                                                const matchedSlot = match?.slot;
+                                                const cellMatches = getCoursesForSlot(day, slot.start, slot.end);
 
                                                 return (
-                                                    <td key={day} className="border border-gray-800 relative h-16 p-0.5">
-                                                        {courseTuple && matchedSlot && (
-                                                            <div className={`w-full h-full rounded md:rounded-lg flex flex-col items-center justify-center p-1 text-center shadow-sm border ${matchedSlot.type === 'LAB'
-                                                                ? 'bg-pink-600/50 border-pink-400/40'
-                                                                : 'bg-indigo-600/60 border-indigo-400/30'}`}>
-                                                                {/* @ts-ignore */}
-                                                                <span className="font-bold text-white text-xs leading-none">
-                                                                    {courseTuple._displayCode || courseTuple.courseId}
-                                                                    {matchedSlot.type === 'LAB' ? ' LAB' : ''}
-                                                                </span>
-                                                                <span className="text-[9px] text-indigo-200 leading-none mt-0.5">Sec {courseTuple.sectionNumber}</span>
-                                                                <span className="text-[8px] text-gray-300 font-mono leading-none mt-0.5">{matchedSlot.roomNumber}</span>
+                                                    <td key={day} className="border border-gray-800 relative h-16 p-0.5 align-middle">
+                                                        {cellMatches.length > 0 && (
+                                                            <div className="flex flex-col gap-0.5 w-full h-full">
+                                                                {cellMatches.map(({ section: courseTuple, slot: matchedSlot }, idx) => (
+                                                                    <div
+                                                                        key={`${courseTuple.id}-${matchedSlot.id}-${idx}`}
+                                                                        className={`w-full flex-1 rounded md:rounded-lg flex flex-col items-center justify-center p-1 text-center shadow-sm border ${matchedSlot.type === 'LAB'
+                                                                            ? 'bg-pink-600/50 border-pink-400/40'
+                                                                            : 'bg-indigo-600/60 border-indigo-400/30'}`}
+                                                                    >
+                                                                        <span className="font-bold text-white text-xs leading-none">
+                                                                            {courseTuple._displayCode || courseTuple.courseId}
+                                                                            {matchedSlot.type === 'LAB' ? ' LAB' : ''}
+                                                                        </span>
+                                                                        <span className="text-[9px] text-indigo-200 leading-none mt-0.5">Sec {courseTuple.sectionNumber}</span>
+                                                                        <span className="text-[8px] text-gray-300 font-mono leading-none mt-0.5">{matchedSlot.roomNumber}</span>
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         )}
                                                     </td>
