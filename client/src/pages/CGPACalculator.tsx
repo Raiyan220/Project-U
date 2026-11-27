@@ -22,8 +22,14 @@ interface Course {
     name: string;
     credits: number;
     grade: string;
-    isRetake: boolean;
-    previousGrade: string;
+}
+
+interface RepeatCourse {
+    id: string;
+    name: string;
+    credits: number;
+    currentGrade: string;
+    expectedGrade: string;
 }
 
 const gradePoints: Record<string, number> = {
@@ -46,6 +52,7 @@ const retakePreviousGrades = ['F', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 
 
 export default function CGPACalculator() {
     const [courses, setCourses] = useState<Course[]>([]);
+    const [repeatCourses, setRepeatCourses] = useState<RepeatCourse[]>([]);
     const [currentCGPA, setCurrentCGPA] = useState<string>('');
     const [completedCredits, setCompletedCredits] = useState<string>('');
     const [totalDegreeCredits, setTotalDegreeCredits] = useState<string>('');
@@ -58,32 +65,30 @@ export default function CGPACalculator() {
     const [sheetAnalyzing, setSheetAnalyzing] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-    // Exact, unrounded semester & cumulative calculations (including retake replacement logic)
+    // Exact, unrounded semester, repeat-course & cumulative calculations
     const calculations = useMemo(() => {
         let semPoints = 0;
         let semCredits = 0;
-        let newOnlyPoints = 0;
-        let newOnlyCredits = 0;
-        let retakeDeltaPoints = 0;
-        let retakeCredits = 0;
 
         for (const c of courses) {
             if (c.credits <= 0) continue;
             const gp = gradePoints[c.grade] ?? 0;
             semPoints += gp * c.credits;
             semCredits += c.credits;
+        }
 
-            if (c.isRetake) {
-                const prevGp = gradePoints[c.previousGrade] ?? 0;
-                retakeDeltaPoints += (gp - prevGp) * c.credits;
-                retakeCredits += c.credits;
-            } else {
-                newOnlyPoints += gp * c.credits;
-                newOnlyCredits += c.credits;
-            }
+        let repeatDeltaPoints = 0;
+        let repeatCredits = 0;
+        for (const r of repeatCourses) {
+            if (r.credits <= 0) continue;
+            const currGp = gradePoints[r.currentGrade] ?? 0;
+            const expGp = gradePoints[r.expectedGrade] ?? 0;
+            repeatDeltaPoints += (expGp - currGp) * r.credits;
+            repeatCredits += r.credits;
         }
 
         const hasCourses = semCredits > 0;
+        const hasRepeats = repeatCredits > 0;
         const semesterGPA = hasCourses ? semPoints / semCredits : null;
 
         const parsedCurr = parseFloat(currentCGPA);
@@ -98,13 +103,17 @@ export default function CGPACalculator() {
             parsedDone >= 0;
 
         let projectedCGPA: number | null = semesterGPA;
-        let projectedCredits: number | null = hasCourses ? newOnlyCredits : null;
+        let projectedCredits: number | null = hasCourses ? semCredits : null;
         let cgpaDelta: number | null = null;
+        let cgpaAfterRepeatsOnly: number | null = null;
 
         if (hasStanding) {
             const basePoints = parsedCurr * parsedDone;
-            const totalPoints = Math.max(0, basePoints + newOnlyPoints + retakeDeltaPoints);
-            const nextCredits = parsedDone + newOnlyCredits;
+            if (hasRepeats && parsedDone > 0) {
+                cgpaAfterRepeatsOnly = Math.min(4.0, Math.max(0, basePoints + repeatDeltaPoints) / parsedDone);
+            }
+            const totalPoints = Math.max(0, basePoints + semPoints + repeatDeltaPoints);
+            const nextCredits = parsedDone + semCredits;
             projectedCredits = nextCredits;
             projectedCGPA = nextCredits > 0
                 ? Math.min(4.0, totalPoints / nextCredits)
@@ -114,18 +123,19 @@ export default function CGPACalculator() {
 
         return {
             hasCourses,
+            hasRepeats,
             semesterGPA,
             semCredits,
-            newOnlyCredits,
-            retakeCredits,
+            repeatCredits,
             hasStanding,
             parsedCurr: hasStanding ? parsedCurr : 0,
             parsedDone: hasStanding ? parsedDone : 0,
             projectedCGPA,
             projectedCredits,
             cgpaDelta,
+            cgpaAfterRepeatsOnly,
         };
-    }, [courses, currentCGPA, completedCredits]);
+    }, [courses, repeatCourses, currentCGPA, completedCredits]);
 
     const goalAnalysis = useMemo(() => {
         const total = parseFloat(totalDegreeCredits);
@@ -320,8 +330,6 @@ export default function CGPACalculator() {
                 name: '',
                 credits: 3,
                 grade: 'A',
-                isRetake: false,
-                previousGrade: 'D',
             },
         ]);
     };
@@ -334,8 +342,30 @@ export default function CGPACalculator() {
         setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
     };
 
+    const addRepeatCourse = () => {
+        setRepeatCourses((prev) => [
+            ...prev,
+            {
+                id: Date.now().toString(),
+                name: '',
+                credits: 3,
+                currentGrade: 'D',
+                expectedGrade: 'A',
+            },
+        ]);
+    };
+
+    const removeRepeatCourse = (id: string) => {
+        setRepeatCourses((prev) => prev.filter((r) => r.id !== id));
+    };
+
+    const updateRepeatCourse = <K extends keyof RepeatCourse>(id: string, field: K, value: RepeatCourse[K]) => {
+        setRepeatCourses((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    };
+
     const resetCalculator = () => {
         setCourses([]);
+        setRepeatCourses([]);
         setCurrentCGPA('');
         setCompletedCredits('');
         setTotalDegreeCredits('');
@@ -401,7 +431,7 @@ export default function CGPACalculator() {
                         </p>
                         <p className="text-[11px] text-purple-200/80 mt-1">
                             {calculations.hasCourses
-                                ? `${calculations.semCredits} cr (${calculations.newOnlyCredits} new${calculations.retakeCredits > 0 ? ` + ${calculations.retakeCredits} retake` : ''})`
+                                ? `${calculations.semCredits} new credits`
                                 : 'No courses added yet'}
                         </p>
                     </div>
@@ -415,7 +445,7 @@ export default function CGPACalculator() {
                             <p className="text-3xl font-black text-white">
                                 {calculations.projectedCGPA !== null ? calculations.projectedCGPA.toFixed(2) : '—'}
                             </p>
-                            {calculations.cgpaDelta !== null && calculations.hasCourses && (
+                            {calculations.cgpaDelta !== null && (calculations.hasCourses || calculations.hasRepeats) && (
                                 <span
                                     className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
                                         calculations.cgpaDelta >= 0
@@ -572,6 +602,127 @@ export default function CGPACalculator() {
                             )}
                         </motion.div>
 
+                        {/* Repeat Course Section */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-amber-400/30 shadow-2xl"
+                        >
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                                <div>
+                                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                        Repeat Course Calculator
+                                        {calculations.cgpaAfterRepeatsOnly !== null && (
+                                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-200">
+                                                After Repeats: {calculations.cgpaAfterRepeatsOnly.toFixed(2)}
+                                            </span>
+                                        )}
+                                    </h2>
+                                    <p className="text-xs text-purple-200/80">
+                                        Replace a previous grade with your expected repeat grade (adjusts CGPA without adding extra credits)
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={addRepeatCourse}
+                                    className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-bold rounded-xl transition-all shadow-lg"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Add Repeat Course
+                                </button>
+                            </div>
+
+                            {repeatCourses.length === 0 ? (
+                                <div className="text-center py-8 px-4 rounded-2xl bg-purple-950/30 border border-dashed border-amber-400/25">
+                                    <p className="text-xs text-purple-200 mb-3">
+                                        Enter your Current CGPA &amp; Completed Credits above, then add repeat courses to see your future CGPA.
+                                    </p>
+                                    <button
+                                        onClick={addRepeatCourse}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 text-amber-100 text-xs font-bold border border-amber-400/35 transition-all"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Add Repeat Course
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {repeatCourses.map((rc, index) => (
+                                        <div
+                                            key={rc.id}
+                                            className="bg-purple-950/35 rounded-2xl p-4 border border-amber-400/25 hover:border-amber-400/50 transition-all space-y-3"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-amber-300 w-16">Repeat #{index + 1}</span>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Course code (optional)"
+                                                    value={rc.name}
+                                                    onChange={(e) => updateRepeatCourse(rc.id, 'name', e.target.value)}
+                                                    className="flex-1 bg-purple-950/50 border border-purple-400/25 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeRepeatCourse(rc.id)}
+                                                    className="p-2 text-red-400 hover:bg-red-500/15 rounded-xl transition-all"
+                                                    title="Remove repeat course"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="block text-[10px] text-purple-300 mb-1">Repeat Course Credit</label>
+                                                    <select
+                                                        value={rc.credits}
+                                                        onChange={(e) => updateRepeatCourse(rc.id, 'credits', parseFloat(e.target.value))}
+                                                        className="w-full bg-purple-950/80 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                        style={{ colorScheme: 'dark' }}
+                                                    >
+                                                        <option value={0.75}>0.75 Cr</option>
+                                                        <option value={1}>1.0 Cr</option>
+                                                        <option value={1.5}>1.5 Cr</option>
+                                                        <option value={2}>2.0 Cr</option>
+                                                        <option value={3}>3.0 Cr</option>
+                                                        <option value={4}>4.0 Cr</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] text-rose-200 mb-1">Current Grade</label>
+                                                    <select
+                                                        value={rc.currentGrade}
+                                                        onChange={(e) => updateRepeatCourse(rc.id, 'currentGrade', e.target.value)}
+                                                        className="w-full bg-purple-950/80 border border-rose-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                        style={{ colorScheme: 'dark' }}
+                                                    >
+                                                        {retakePreviousGrades.map((g) => (
+                                                            <option key={g} value={g}>
+                                                                {g} ({gradePoints[g].toFixed(2)})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] text-emerald-200 mb-1">Expected After Repeat</label>
+                                                    <select
+                                                        value={rc.expectedGrade}
+                                                        onChange={(e) => updateRepeatCourse(rc.id, 'expectedGrade', e.target.value)}
+                                                        className="w-full bg-purple-950/80 border border-emerald-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                        style={{ colorScheme: 'dark' }}
+                                                    >
+                                                        {grades.map((g) => (
+                                                            <option key={g} value={g}>
+                                                                {g} ({gradePoints[g].toFixed(2)})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </motion.div>
+
                         {/* This Semester's Courses */}
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
@@ -580,9 +731,9 @@ export default function CGPACalculator() {
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">This Semester&apos;s Courses</h2>
+                                    <h2 className="text-lg font-bold text-white">This Semester&apos;s New Courses</h2>
                                     <p className="text-xs text-purple-200/80">
-                                        Add courses manually or toggle <strong>Retake</strong> to replace an older grade
+                                        Add new courses to project your Semester GPA &amp; future CGPA
                                     </p>
                                 </div>
                                 <button
@@ -595,8 +746,8 @@ export default function CGPACalculator() {
                             </div>
 
                             {courses.length === 0 ? (
-                                <div className="text-center py-10 px-4 rounded-2xl bg-purple-950/30 border border-dashed border-purple-400/25">
-                                    <p className="text-sm text-purple-200 mb-3">No courses added yet.</p>
+                                <div className="text-center py-8 px-4 rounded-2xl bg-purple-950/30 border border-dashed border-purple-400/25">
+                                    <p className="text-sm text-purple-200 mb-3">No new courses added yet.</p>
                                     <button
                                         onClick={addCourse}
                                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600/50 hover:bg-purple-600/70 text-white text-xs font-bold border border-purple-400/30 transition-all"
@@ -606,7 +757,7 @@ export default function CGPACalculator() {
                                     </button>
                                 </div>
                             ) : (
-                                <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 custom-scrollbar">
+                                <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
                                     {courses.map((course, index) => (
                                         <div
                                             key={course.id}
@@ -623,17 +774,6 @@ export default function CGPACalculator() {
                                                 />
                                                 <button
                                                     type="button"
-                                                    onClick={() => updateCourse(course.id, 'isRetake', !course.isRetake)}
-                                                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                                        course.isRetake
-                                                            ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
-                                                            : 'bg-purple-900/40 border-purple-400/25 text-purple-200 hover:bg-purple-800/40'
-                                                    }`}
-                                                >
-                                                    {course.isRetake ? 'Retake: ON' : 'New Course'}
-                                                </button>
-                                                <button
-                                                    type="button"
                                                     onClick={() => removeCourse(course.id)}
                                                     className="p-2 text-red-400 hover:bg-red-500/15 rounded-xl transition-all"
                                                     title="Remove course"
@@ -642,7 +782,7 @@ export default function CGPACalculator() {
                                                 </button>
                                             </div>
 
-                                            <div className={`grid gap-3 ${course.isRetake ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                                            <div className="grid grid-cols-2 gap-3">
                                                 <div>
                                                     <label className="block text-[10px] text-purple-300 mb-1">Credits</label>
                                                     <select
@@ -660,9 +800,7 @@ export default function CGPACalculator() {
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] text-purple-300 mb-1">
-                                                        {course.isRetake ? 'New Grade' : 'Expected Grade'}
-                                                    </label>
+                                                    <label className="block text-[10px] text-purple-300 mb-1">Expected Grade</label>
                                                     <select
                                                         value={course.grade}
                                                         onChange={(e) => updateCourse(course.id, 'grade', e.target.value)}
@@ -676,23 +814,6 @@ export default function CGPACalculator() {
                                                         ))}
                                                     </select>
                                                 </div>
-                                                {course.isRetake && (
-                                                    <div>
-                                                        <label className="block text-[10px] text-amber-200 mb-1">Previous Grade</label>
-                                                        <select
-                                                            value={course.previousGrade}
-                                                            onChange={(e) => updateCourse(course.id, 'previousGrade', e.target.value)}
-                                                            className="w-full bg-amber-950/60 border border-amber-400/40 rounded-xl px-3 py-2 text-sm text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                                            style={{ colorScheme: 'dark' }}
-                                                        >
-                                                            {retakePreviousGrades.map((g) => (
-                                                                <option key={g} value={g}>
-                                                                    {g} ({gradePoints[g].toFixed(2)})
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     ))}

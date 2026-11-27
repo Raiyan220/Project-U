@@ -47,7 +47,7 @@ export default function LandingPage() {
                             </span>
                         </h1>
                         <p className="text-lg md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
-                            Track live <span className="font-bold text-white">BRACU Connect</span> seat openings, get instant drop alerts, build clash-free routines, find open NS &amp; Main rooms, and plan with your <span className="font-bold text-white">AI CGPA Mentor</span>.
+                            Track live <span className="font-bold text-white">BRACU Connect</span> seat openings, get instant drop alerts, build clash-free routines, find empty room in your campus, and plan with your <span className="font-bold text-white">AI CGPA Mentor</span>.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
