@@ -186,7 +186,7 @@ const OpenRooms: React.FC = () => {
                         : 'bg-white/10 text-indigo-100 border-white/15 hover:bg-white/20'}`}
                 >
                     <Building2 className="w-4 h-4" />
-                    ANNEX Building (North &amp; South Wing)
+                    ANNEX Building
                 </button>
             </div>
 
@@ -227,15 +227,10 @@ const OpenRooms: React.FC = () => {
                                     </>
                                 ) : (
                                     <>
-                                        <option className="bg-indigo-900 text-white" value="">All ANNEX Building (North &amp; South Wing)</option>
-                                        <option className="bg-indigo-900 text-white" value="NS_NORTH">North Wing — All (AN)</option>
-                                        <option className="bg-indigo-900 text-white" value="ANG">North Wing — Ground Floor (ANG)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN1">North Wing — 1st Floor (AN1)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN2">North Wing — 2nd Floor (AN2)</option>
-                                        <option className="bg-indigo-900 text-white" value="NS_SOUTH">South Wing — All (AS)</option>
-                                        <option className="bg-indigo-900 text-white" value="ASG">South Wing — Ground Floor (ASG)</option>
-                                        <option className="bg-indigo-900 text-white" value="AS1">South Wing — 1st Floor (AS1)</option>
-                                        <option className="bg-indigo-900 text-white" value="AS2">South Wing — 2nd Floor (AS2)</option>
+                                        <option className="bg-indigo-900 text-white" value="">All ANNEX Floors (Ground / 1st / 2nd)</option>
+                                        <option className="bg-indigo-900 text-white" value="ANNEX_G">Ground Floor (ANG / ASG)</option>
+                                        <option className="bg-indigo-900 text-white" value="ANNEX_1">1st Floor (AN1 / AS1)</option>
+                                        <option className="bg-indigo-900 text-white" value="ANNEX_2">2nd Floor (AN2 / AS2)</option>
                                     </>
                                 )}
                             </select>
@@ -290,7 +285,7 @@ const OpenRooms: React.FC = () => {
                                     ? 'bg-indigo-500 text-white border-indigo-400 shadow'
                                     : 'bg-white/5 text-indigo-200 border-white/10 hover:bg-white/10'}`}
                             >
-                                {rt === 'ALL' ? 'All Rooms' : rt === 'THEORY' ? 'Theory Rooms' : 'Lab Rooms'}
+                                {rt === 'ALL' ? 'All Rooms' : rt === 'THEORY' ? 'Theory Classes' : 'Lab Classes'}
                             </button>
                         ))}
 
@@ -358,13 +353,15 @@ const OpenRooms: React.FC = () => {
                             if (buildingTab === 'NS' && !ns) return false;
                             if (buildingTab === 'MAIN' && ns) return false;
 
-                            // 2. Floor / Block dropdown filter
+                            // 2. Floor dropdown filter
                             if (selectedFloor) {
                                 if (buildingTab === 'NS') {
-                                    if (selectedFloor === 'NS_NORTH') {
-                                        if (!/^AN/i.test(room.building)) return false;
-                                    } else if (selectedFloor === 'NS_SOUTH') {
-                                        if (!/^AS/i.test(room.building)) return false;
+                                    if (selectedFloor === 'ANNEX_G') {
+                                        if (!/^(AN|AS)G$/i.test(room.building)) return false;
+                                    } else if (selectedFloor === 'ANNEX_1') {
+                                        if (!/^(AN|AS)1$/i.test(room.building)) return false;
+                                    } else if (selectedFloor === 'ANNEX_2') {
+                                        if (!/^(AN|AS)2$/i.test(room.building)) return false;
                                     } else if (room.building.toUpperCase() !== selectedFloor) {
                                         return false;
                                     }
@@ -401,11 +398,9 @@ const OpenRooms: React.FC = () => {
                                         ? `Until ${formatTimeFromHHMM(room.freeUntil)}`
                                         : 'Free rest of day';
                         const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeMinutes ?? 0) >= 90);
-                        const floorLabel = /^AN/i.test(room.building)
-                            ? `ANNEX North (${room.building})`
-                            : /^AS/i.test(room.building)
-                                ? `ANNEX South (${room.building})`
-                                : `Floor ${room.building}`;
+                        const floorLabel = /^(AN|AS)/i.test(room.building)
+                            ? `ANNEX (${room.building})`
+                            : `Floor ${room.building}`;
 
                         return (
                             <div
@@ -466,12 +461,12 @@ const OpenRooms: React.FC = () => {
                                 <div className="flex items-center gap-3">
                                     {buildingTab === 'NS' && (
                                         <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-extrabold uppercase tracking-wider">
-                                            ANNEX Wing
+                                            ANNEX
                                         </span>
                                     )}
                                     <h2 className="text-xl font-bold text-white">
                                         {buildingTab === 'NS'
-                                            ? 'ANNEX Building (North Wing AN & South Wing AS)'
+                                            ? 'ANNEX Building'
                                             : 'Main Building (Floors 7–12)'}
                                     </h2>
                                 </div>
