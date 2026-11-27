@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Plus,
     Trash2,
@@ -14,6 +14,9 @@ import {
     BookOpen,
     Target,
     Upload,
+    CheckCircle2,
+    AlertTriangle,
+    X,
 } from 'lucide-react';
 import { api } from '../lib/axios';
 
@@ -63,7 +66,9 @@ export default function CGPACalculator() {
     const [advisorLoading, setAdvisorLoading] = useState(false);
     const [advisorProvider, setAdvisorProvider] = useState<string | null>(null);
     const [sheetAnalyzing, setSheetAnalyzing] = useState(false);
+    const [goalPopupOpen, setGoalPopupOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const repeatSectionRef = useRef<HTMLDivElement | null>(null);
 
     // Exact, unrounded semester, repeat-course & cumulative calculations
     const calculations = useMemo(() => {
@@ -210,6 +215,22 @@ export default function CGPACalculator() {
             summary,
         };
     }, [calculations, totalDegreeCredits, targetCGPA, creditsPerSem]);
+
+    useEffect(() => {
+        if (!goalAnalysis) {
+            setGoalPopupOpen(false);
+            return;
+        }
+        const timer = setTimeout(() => {
+            setGoalPopupOpen(true);
+        }, 450);
+        return () => clearTimeout(timer);
+    }, [
+        goalAnalysis?.possible,
+        goalAnalysis?.requiredGPA,
+        goalAnalysis?.remaining,
+        targetCGPA,
+    ]);
 
     const askAdvisor = async (customPrompt?: string) => {
         const q = (customPrompt ?? advisorQuestion).trim();
@@ -604,6 +625,7 @@ export default function CGPACalculator() {
 
                         {/* Repeat Course Section */}
                         <motion.div
+                            ref={repeatSectionRef}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-amber-400/30 shadow-2xl"
@@ -965,6 +987,72 @@ export default function CGPACalculator() {
                     .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.5); border-radius: 10px; }
                     .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(168, 85, 247, 0.7); }
                 `}</style>
+
+                <AnimatePresence>
+                    {goalPopupOpen && goalAnalysis && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 16, scale: 0.96 }}
+                            className={`fixed bottom-5 right-5 z-50 max-w-sm w-[calc(100vw-2.5rem)] rounded-2xl p-4 border backdrop-blur-xl shadow-2xl ${
+                                goalAnalysis.possible
+                                    ? 'bg-emerald-950/90 border-emerald-400/50 text-emerald-50'
+                                    : 'bg-amber-950/95 border-amber-400/50 text-amber-50'
+                            }`}
+                        >
+                            <div className="flex items-start gap-3">
+                                <div
+                                    className={`p-2 rounded-xl shrink-0 ${
+                                        goalAnalysis.possible
+                                            ? 'bg-emerald-500/20 text-emerald-300'
+                                            : 'bg-amber-500/20 text-amber-300'
+                                    }`}
+                                >
+                                    {goalAnalysis.possible ? (
+                                        <CheckCircle2 className="w-5 h-5" />
+                                    ) : (
+                                        <AlertTriangle className="w-5 h-5" />
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h4 className="text-sm font-extrabold">
+                                            {goalAnalysis.possible
+                                                ? 'Congratulations! You can achieve this CGPA'
+                                                : 'Repeat Course Needed'}
+                                        </h4>
+                                        <button
+                                            type="button"
+                                            onClick={() => setGoalPopupOpen(false)}
+                                            className="p-1 rounded-lg hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+                                            aria-label="Close notification"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <p className="text-xs opacity-90 mt-1 leading-relaxed">
+                                        {goalAnalysis.possible
+                                            ? `You can reach ${parseFloat(targetCGPA).toFixed(2)} CGPA by averaging ${Math.max(0, goalAnalysis.requiredGPA).toFixed(2)} GPA across your remaining ${goalAnalysis.remaining} credits.`
+                                            : `You need to repeat ${goalAnalysis.retakesNeeded > 0 ? goalAnalysis.retakesNeeded : 'one or several'} course${goalAnalysis.retakesNeeded > 1 ? 's' : ''} to achieve ${parseFloat(targetCGPA).toFixed(2)} CGPA. Select the Repeat Course option below to calculate your new grade after repeating.`}
+                                    </p>
+                                    {!goalAnalysis.possible && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setGoalPopupOpen(false);
+                                                if (repeatCourses.length === 0) addRepeatCourse();
+                                                repeatSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }}
+                                            className="mt-2.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition-colors"
+                                        >
+                                            Open Repeat Course Calculator →
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );
