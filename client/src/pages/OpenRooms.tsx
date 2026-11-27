@@ -24,7 +24,7 @@ interface Room {
 const OpenRooms: React.FC = () => {
     const [rooms, setRooms] = useState<Room[]>([]);
     const [buildings, setBuildings] = useState<string[]>([]);
-    const [buildingTab, setBuildingTab] = useState<'MAIN' | 'ANNEX'>('MAIN');
+    const [buildingTab, setBuildingTab] = useState<'MAIN' | 'NS'>('MAIN');
     const [selectedFloor, setSelectedFloor] = useState<string>('');
     const [selectedDay, setSelectedDay] = useState<string>('');
     const [selectedTime, setSelectedTime] = useState<string>(''); // "HH:MM"
@@ -81,7 +81,7 @@ const OpenRooms: React.FC = () => {
         }
     };
 
-    const handleTabChange = (tab: 'MAIN' | 'ANNEX') => {
+    const handleTabChange = (tab: 'MAIN' | 'NS') => {
         setBuildingTab(tab);
         setSelectedFloor('');
     };
@@ -115,7 +115,9 @@ const OpenRooms: React.FC = () => {
         const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
         return h * 100 + m;
     })();
-    const isUniversityClosed = effectiveHHMM < 800 || effectiveHHMM >= 2020;
+    const effectiveDay = (selectedDay || currentDay).toUpperCase();
+    const isFriday = effectiveDay === 'FRIDAY';
+    const isUniversityClosed = isFriday || effectiveHHMM < 800 || effectiveHHMM >= 2020;
 
     const formatTime = (date: Date) => {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -140,9 +142,11 @@ const OpenRooms: React.FC = () => {
                     </Link>
                     <div className="flex items-center gap-4 mb-2">
                         <Link to="/" className="group">
-                            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30 group-hover:scale-105 transition-transform">
-                                <span className="text-white font-black text-2xl">U</span>
-                            </div>
+                            <img
+                                src="/uniflow-logo.svg"
+                                alt="UniFlow"
+                                className="w-12 h-12 rounded-xl shadow-lg shadow-purple-500/30 group-hover:scale-105 transition-transform"
+                            />
                         </Link>
                         <h1 className="text-4xl md:text-5xl font-bold text-white">
                             Open Room Finder
@@ -164,7 +168,7 @@ const OpenRooms: React.FC = () => {
                 </div>
             </div>
 
-            {/* Two Building Buttons: Main Building (Left) & ANNEX Building (Right) */}
+            {/* Two Building Buttons: Main Building (Left) & NS Building (Right) */}
             <div className="max-w-6xl mx-auto mb-5 grid grid-cols-2 gap-3">
                 <button
                     onClick={() => handleTabChange('MAIN')}
@@ -176,20 +180,26 @@ const OpenRooms: React.FC = () => {
                     Main Building
                 </button>
                 <button
-                    onClick={() => handleTabChange('ANNEX')}
-                    className={`py-3.5 px-5 rounded-2xl text-sm font-extrabold border transition-all flex items-center justify-center gap-2 ${buildingTab === 'ANNEX'
+                    onClick={() => handleTabChange('NS')}
+                    className={`py-3.5 px-5 rounded-2xl text-sm font-extrabold border transition-all flex items-center justify-center gap-2 ${buildingTab === 'NS'
                         ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-amber-400 shadow-lg shadow-amber-500/30'
                         : 'bg-white/10 text-indigo-100 border-white/15 hover:bg-white/20'}`}
                 >
                     <Building2 className="w-4 h-4" />
-                    ANNEX Building
+                    NS Building (North &amp; South)
                 </button>
             </div>
 
             {isUniversityClosed && (
                 <div className="max-w-6xl mx-auto mb-5 bg-emerald-500/15 border border-emerald-400/30 rounded-2xl px-5 py-3 flex items-center justify-between text-xs text-emerald-200 font-semibold">
-                    <span>University is currently outside class hours (8:20 PM – 8:00 AM) — every room is free.</span>
-                    <span className="uppercase tracking-wider text-emerald-300 font-bold">Closed Hours</span>
+                    <span>
+                        {isFriday
+                            ? 'Friday — No regular classes are scheduled at BRACU (Campus Closed).'
+                            : 'University is currently outside class hours (8:20 PM – 8:00 AM) — every room is free.'}
+                    </span>
+                    <span className="uppercase tracking-wider text-emerald-300 font-bold">
+                        {isFriday ? 'No Classes' : 'Closed Hours'}
+                    </span>
                 </div>
             )}
 
@@ -206,25 +216,26 @@ const OpenRooms: React.FC = () => {
                             >
                                 {buildingTab === 'MAIN' ? (
                                     <>
-                                        <option className="bg-indigo-900 text-white" value="">All Main Building Floors &amp; Labs</option>
+                                        <option className="bg-indigo-900 text-white" value="">All Main Building Floors (7–12)</option>
                                         {buildings
-                                            .filter((b) => b !== 'ANNEX')
+                                            .filter((b) => /^\d+$/.test(b))
                                             .map((b) => (
                                                 <option className="bg-indigo-900 text-white" key={b} value={b}>
-                                                    {b === 'AS'
-                                                        ? 'AS Labs (AS1 / AS2 / ASG)'
-                                                        : b === 'UB'
-                                                            ? 'Main / TBA'
-                                                            : `Floor ${b}`}
+                                                    Floor {b}
                                                 </option>
                                             ))}
                                     </>
                                 ) : (
                                     <>
-                                        <option className="bg-indigo-900 text-white" value="">All ANNEX Floors (ANG / AN1 / AN2)</option>
-                                        <option className="bg-indigo-900 text-white" value="ANG">ANNEX Ground (ANG)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN1">ANNEX Floor 1 (AN1)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN2">ANNEX Floor 2 (AN2)</option>
+                                        <option className="bg-indigo-900 text-white" value="">All NS Building (North &amp; South)</option>
+                                        <option className="bg-indigo-900 text-white" value="NS_NORTH">NS North — All AN</option>
+                                        <option className="bg-indigo-900 text-white" value="ANG">NS North — Ground (ANG)</option>
+                                        <option className="bg-indigo-900 text-white" value="AN1">NS North — Floor 1 (AN1)</option>
+                                        <option className="bg-indigo-900 text-white" value="AN2">NS North — Floor 2 (AN2)</option>
+                                        <option className="bg-indigo-900 text-white" value="NS_SOUTH">NS South — All AS</option>
+                                        <option className="bg-indigo-900 text-white" value="ASG">NS South — Ground (ASG)</option>
+                                        <option className="bg-indigo-900 text-white" value="AS1">NS South — Floor 1 (AS1)</option>
+                                        <option className="bg-indigo-900 text-white" value="AS2">NS South — Floor 2 (AS2)</option>
                                     </>
                                 )}
                             </select>
@@ -318,9 +329,9 @@ const OpenRooms: React.FC = () => {
                     <div className="text-xs text-indigo-200 font-medium">
                         {(() => {
                             const tabRooms = rooms.filter((r) =>
-                                buildingTab === 'ANNEX' ? /^AN/i.test(r.building) : !/^AN/i.test(r.building),
+                                buildingTab === 'NS' ? /^(AN|AS)/i.test(r.building) : !/^(AN|AS)/i.test(r.building),
                             );
-                            return `${tabRooms.filter((r) => r.status === 'FREE').length} Free / ${tabRooms.length} ${buildingTab === 'ANNEX' ? 'ANNEX' : 'Main'} Rooms`;
+                            return `${tabRooms.filter((r) => r.status === 'FREE').length} Free / ${tabRooms.length} ${buildingTab === 'NS' ? 'NS' : 'Main'} Rooms`;
                         })()}
                     </div>
                 </div>
@@ -339,22 +350,24 @@ const OpenRooms: React.FC = () => {
                         <p>{error}</p>
                     </div>
                 ) : (() => {
-                    const isAnnexRoom = (r: Room) => /^AN/i.test(r.building) || /^AN/i.test(r.roomNumber);
+                    const isNsRoom = (r: Room) => /^(AN|AS)/i.test(r.building) || /^(AN|AS)/i.test(r.roomNumber);
                     const filteredRooms = rooms
                         .filter((room) => {
-                            // 1. Building tab partition (Main vs ANNEX)
-                            const annex = isAnnexRoom(room);
-                            if (buildingTab === 'ANNEX' && !annex) return false;
-                            if (buildingTab === 'MAIN' && annex) return false;
+                            // 1. Building tab partition (Main vs NS)
+                            const ns = isNsRoom(room);
+                            if (buildingTab === 'NS' && !ns) return false;
+                            if (buildingTab === 'MAIN' && ns) return false;
 
-                            // 2. Floor dropdown filter
+                            // 2. Floor / Block dropdown filter
                             if (selectedFloor) {
-                                if (buildingTab === 'ANNEX') {
-                                    if (room.building.toUpperCase() !== selectedFloor) return false;
-                                } else if (selectedFloor === 'AS') {
-                                    if (!/^AS/i.test(room.building)) return false;
-                                } else if (selectedFloor === 'UB') {
-                                    if (room.building !== 'UB' && room.building !== 'TBA') return false;
+                                if (buildingTab === 'NS') {
+                                    if (selectedFloor === 'NS_NORTH') {
+                                        if (!/^AN/i.test(room.building)) return false;
+                                    } else if (selectedFloor === 'NS_SOUTH') {
+                                        if (!/^AS/i.test(room.building)) return false;
+                                    } else if (room.building.toUpperCase() !== selectedFloor) {
+                                        return false;
+                                    }
                                 } else {
                                     const m = room.building.match(/^(\d+)/);
                                     if (!m || parseInt(m[1], 10).toString() !== selectedFloor) return false;
@@ -380,19 +393,19 @@ const OpenRooms: React.FC = () => {
                         const isLab = (room.roomType || (/L$/i.test(room.roomNumber) ? 'LAB' : 'THEORY')) === 'LAB';
                         const badgeText = isBusy
                             ? `BUSY: Free at ${formatTimeFromHHMM(room.busyUntil!)}`
-                            : isUniversityClosed
-                                ? 'Closed Hours (Free)'
-                                : room.freeUntil
-                                    ? `Until ${formatTimeFromHHMM(room.freeUntil)}`
-                                    : 'Free rest of day';
+                            : isFriday
+                                ? 'No Classes (Friday)'
+                                : isUniversityClosed
+                                    ? 'Closed Hours (Free)'
+                                    : room.freeUntil
+                                        ? `Until ${formatTimeFromHHMM(room.freeUntil)}`
+                                        : 'Free rest of day';
                         const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeMinutes ?? 0) >= 90);
-                        const floorLabel = room.building === 'UB'
-                            ? 'UB'
-                            : /^AN/i.test(room.building)
-                                ? `ANNEX (${room.building})`
-                                : /^AS/i.test(room.building)
-                                    ? `AS (${room.building})`
-                                    : `Floor ${room.building}`;
+                        const floorLabel = /^AN/i.test(room.building)
+                            ? `NS North (${room.building})`
+                            : /^AS/i.test(room.building)
+                                ? `NS South (${room.building})`
+                                : `Floor ${room.building}`;
 
                         return (
                             <div
@@ -446,20 +459,20 @@ const OpenRooms: React.FC = () => {
                     }
 
                     return (
-                        <section className={`rounded-3xl p-6 border ${buildingTab === 'ANNEX'
+                        <section className={`rounded-3xl p-6 border ${buildingTab === 'NS'
                             ? 'bg-amber-500/5 border-amber-400/25'
                             : 'bg-white/5 border-white/10'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
                                 <div className="flex items-center gap-3">
-                                    {buildingTab === 'ANNEX' && (
+                                    {buildingTab === 'NS' && (
                                         <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-extrabold uppercase tracking-wider">
-                                            New Wing
+                                            NS Wing
                                         </span>
                                     )}
                                     <h2 className="text-xl font-bold text-white">
-                                        {buildingTab === 'ANNEX'
-                                            ? 'ANNEX Building (AN1 / AN2 / ANG)'
-                                            : 'Main Building & Labs'}
+                                        {buildingTab === 'NS'
+                                            ? 'NS Building (NS North AN & NS South AS)'
+                                            : 'Main Building (Floors 7–12)'}
                                     </h2>
                                 </div>
                                 <span className="text-xs text-indigo-200 font-semibold">

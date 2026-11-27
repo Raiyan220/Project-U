@@ -489,6 +489,18 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      // Also heal any existing slots whose roomNumber contains unparsed day/time strings (e.g. "MON 12:30PM: 07A-08C; ...")
+      if (this.isFirstSync) {
+        const malformedSlots = await this.prisma.roomSlot.findMany({
+          where: { roomNumber: { contains: ':' } },
+          select: { sectionId: true },
+          distinct: ['sectionId'],
+        });
+        for (const ms of malformedSlots) {
+          if (ms.sectionId) sectionsNeedingSlotReset.add(ms.sectionId);
+        }
+      }
+
       // Bulk delete slots ONLY for sections that need slot reset (schedule changed)
       // This is a massive optimization: we don't delete slots if only seats changed.
       if (sectionsNeedingSlotReset.size > 0) {
@@ -628,6 +640,46 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
                   return results;
                 };
 
+                const extractRoomForDay = (
+                  rawRoom: string | null | undefined,
+                  day: string,
+                ): string => {
+                  if (!rawRoom) return 'TBA';
+                  const trimmed = rawRoom.trim();
+                  if (!trimmed.includes(':')) return trimmed || 'TBA';
+                  const dayPrefix = day.slice(0, 3).toUpperCase();
+                  const parts = trimmed.split(';').map((p) => p.trim());
+                  for (const part of parts) {
+                    const m = part.match(/^([A-Z]{3})\b[^:]*:\s*(.+)$/i);
+                    if (m && m[1].toUpperCase() === dayPrefix) {
+                      return m[2].trim() || 'TBA';
+                    }
+                  }
+                  const firstColon = trimmed.match(/:\s*([^;]+)/);
+                  return firstColon ? firstColon[1].trim() : trimmed;
+                };
+
+                const makeSlot = (
+                  day: string,
+                  startTime: number,
+                  endTime: number,
+                  rawRoom: string | null | undefined,
+                  type: 'CLASS' | 'LAB',
+                ) => {
+                  const roomStr = extractRoomForDay(rawRoom, day);
+                  const floorMatch = roomStr.match(/^([^-]+)/);
+                  const floorCode = floorMatch ? floorMatch[1].trim() : 'UB';
+                  return {
+                    day,
+                    startTime,
+                    endTime,
+                    roomNumber: roomStr,
+                    building: floorCode,
+                    type,
+                    sectionId: item.sectionId.toString(),
+                  };
+                };
+
                 const slotsToCreate: any[] = [];
 
                 // 1. Process Class Slots
@@ -638,18 +690,9 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
                 );
                 if (classSlotsFromStr.length > 0) {
                   for (const slot of classSlotsFromStr) {
-                    const roomStr = slot.roomNumber || 'TBA';
-                    const floorMatch = roomStr.match(/^([^-]+)/);
-                    const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                    slotsToCreate.push({
-                      day: slot.day,
-                      startTime: slot.startTime,
-                      endTime: slot.endTime,
-                      roomNumber: roomStr,
-                      building: floorCode,
-                      type: 'CLASS',
-                      sectionId: item.sectionId.toString(),
-                    });
+                    slotsToCreate.push(
+                      makeSlot(slot.day, slot.startTime, slot.endTime, slot.roomNumber, 'CLASS'),
+                    );
                   }
                   classSlotsProcessed = true;
                 }
@@ -659,19 +702,15 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
                   item.sectionSchedule?.classSchedules
                 ) {
                   for (const slot of item.sectionSchedule.classSchedules) {
-                    const roomStr =
-                      slot.roomNo || item.roomNumber || item.roomName || 'TBA';
-                    const floorMatch = roomStr.match(/^([^-]+)/);
-                    const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                    slotsToCreate.push({
-                      day: slot.day,
-                      startTime: parseTime24(slot.startTime),
-                      endTime: parseTime24(slot.endTime),
-                      roomNumber: roomStr,
-                      building: floorCode,
-                      type: 'CLASS',
-                      sectionId: item.sectionId.toString(),
-                    });
+                    slotsToCreate.push(
+                      makeSlot(
+                        slot.day,
+                        parseTime24(slot.startTime),
+                        parseTime24(slot.endTime),
+                        slot.roomNo || item.roomNumber || item.roomName,
+                        'CLASS',
+                      ),
+                    );
                   }
                 }
 
@@ -683,18 +722,9 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
                 );
                 if (labSlotsFromStr.length > 0) {
                   for (const slot of labSlotsFromStr) {
-                    const roomStr = slot.roomNumber || 'TBA';
-                    const floorMatch = roomStr.match(/^([^-]+)/);
-                    const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                    slotsToCreate.push({
-                      day: slot.day,
-                      startTime: slot.startTime,
-                      endTime: slot.endTime,
-                      roomNumber: roomStr,
-                      building: floorCode,
-                      type: 'LAB',
-                      sectionId: item.sectionId.toString(),
-                    });
+                    slotsToCreate.push(
+                      makeSlot(slot.day, slot.startTime, slot.endTime, slot.roomNumber, 'LAB'),
+                    );
                   }
                   labSlotsProcessed = true;
                 }
@@ -705,19 +735,15 @@ export class BracuService implements OnModuleInit, OnModuleDestroy {
                 ) {
                   if (item.labSchedules && item.labSchedules.length > 0) {
                     for (const slot of item.labSchedules) {
-                      const roomStr =
-                        slot.roomNo || item.labRoomName || item.roomName || 'TBA';
-                      const floorMatch = roomStr.match(/^([^-]+)/);
-                      const floorCode = floorMatch ? floorMatch[1] : 'UB';
-                      slotsToCreate.push({
-                        day: slot.day,
-                        startTime: parseTime24(slot.startTime),
-                        endTime: parseTime24(slot.endTime),
-                        roomNumber: roomStr,
-                        building: floorCode,
-                        type: 'LAB',
-                        sectionId: item.sectionId.toString(),
-                      });
+                      slotsToCreate.push(
+                        makeSlot(
+                          slot.day,
+                          parseTime24(slot.startTime),
+                          parseTime24(slot.endTime),
+                          slot.roomNo || item.labRoomName || item.roomName,
+                          'LAB',
+                        ),
+                      );
                     }
                   }
                 }

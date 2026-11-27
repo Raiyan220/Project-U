@@ -17,20 +17,18 @@ export class RoomsService {
 
   constructor(private readonly prisma: PrismaService) { }
 
-  // Check if a building code is valid (main floors "07A", ANNEX "AN1"/"ANG", "AS1"/"ASG", or "UB"/"TBA")
+  // Check if a building code is a real physical classroom (main floors "07A".."12H" or NS blocks "AN*"/"AS*")
   private isValidBuilding(building: string): boolean {
     if (!building) return false;
-    if (building === 'UB' || building === 'TBA') return true;
     if (/^(AN|AS)[0-9G]+$/i.test(building)) return true;
     // Valid main-building floor codes start with digits (e.g., "07A", "10B", "7A")
     return /^\d+[A-Za-z]?$/.test(building);
   }
 
-  // Extract floor/building group from building code (e.g., "07A" -> "7", "AN1" -> "ANNEX", "AS1" -> "AS", "UB" -> "UB")
+  // Extract floor/building group from building code (e.g., "07A" -> "7", "AN1" -> "NS_NORTH", "AS1" -> "NS_SOUTH")
   private extractFloor(building: string): string | null {
-    if (building === 'UB' || building === 'TBA') return 'UB';
-    if (/^AN[0-9G]+$/i.test(building)) return 'ANNEX';
-    if (/^AS[0-9G]+$/i.test(building)) return 'AS';
+    if (/^AN[0-9G]+$/i.test(building)) return 'NS_NORTH';
+    if (/^AS[0-9G]+$/i.test(building)) return 'NS_SOUTH';
     // Match building codes that start with digits (e.g., "07A", "10B")
     const match = building.match(/^(\d+)/);
     if (match) {
@@ -85,11 +83,9 @@ export class RoomsService {
         if (floor) floors.add(floor);
       });
       this.floorCache = [...floors].sort((a, b) => {
-        // Put ANNEX first among named buildings, numeric floors sorted ascending, AS & UB at the end
         const order = (val: string) => {
-          if (val === 'ANNEX') return 1000;
-          if (val === 'AS') return 1001;
-          if (val === 'UB') return 1002;
+          if (val === 'NS_NORTH') return 1000;
+          if (val === 'NS_SOUTH') return 1001;
           return parseInt(val, 10);
         };
         return order(a) - order(b);
@@ -124,18 +120,16 @@ export class RoomsService {
 
     let targetRooms = rooms;
     if (normalizedFloor === 'MAIN') {
-      targetRooms = rooms.filter((r) => !/^AN/i.test(r.building));
-    } else if (normalizedFloor === 'ANNEX') {
+      targetRooms = rooms.filter((r) => !/^(AN|AS)/i.test(r.building));
+    } else if (normalizedFloor === 'NS') {
+      targetRooms = rooms.filter((r) => /^(AN|AS)/i.test(r.building));
+    } else if (normalizedFloor === 'NS_NORTH' || normalizedFloor === 'AN' || normalizedFloor === 'ANNEX') {
       targetRooms = rooms.filter((r) => /^AN/i.test(r.building));
-    } else if (/^AN[0-9G]+$/i.test(normalizedFloor || '')) {
+    } else if (normalizedFloor === 'NS_SOUTH' || normalizedFloor === 'AS') {
+      targetRooms = rooms.filter((r) => /^AS/i.test(r.building));
+    } else if (/^(AN|AS)[0-9G]+$/i.test(normalizedFloor || '')) {
       targetRooms = rooms.filter(
         (r) => r.building.toUpperCase() === normalizedFloor,
-      );
-    } else if (normalizedFloor === 'AS') {
-      targetRooms = rooms.filter((r) => /^AS/i.test(r.building));
-    } else if (normalizedFloor === 'UB') {
-      targetRooms = rooms.filter(
-        (r) => r.building === 'UB' || r.building === 'TBA',
       );
     } else if (normalizedFloor) {
       // Filter by numeric floor prefix (e.g., floor "7" matches buildings "07A", "07B", "7A", "7B", etc.)
@@ -150,8 +144,9 @@ export class RoomsService {
       });
     }
 
-    // University operates 08:00 AM (0800) to 08:20 PM (2020); outside those hours every room is free
-    const isUniversityClosed = time < 800 || time >= 2020;
+    // Friday has no regular classes, and university operates 08:00 AM (0800) to 08:20 PM (2020)
+    const isFriday = day.toUpperCase() === 'FRIDAY';
+    const isUniversityClosed = isFriday || time < 800 || time >= 2020;
     if (isUniversityClosed) {
       return targetRooms.map((room) => ({
         ...room,
@@ -164,17 +159,25 @@ export class RoomsService {
     // 2. Build the building filter based on floor/building selection
     let buildingFilter: any = {};
     if (normalizedFloor === 'MAIN') {
-      buildingFilter = { NOT: { building: { startsWith: 'AN' } } };
-    } else if (normalizedFloor === 'ANNEX') {
-      buildingFilter = { building: { startsWith: 'AN' } };
-    } else if (/^AN[0-9G]+$/i.test(normalizedFloor || '')) {
-      buildingFilter = { building: normalizedFloor };
-    } else if (normalizedFloor === 'AS') {
-      buildingFilter = { building: { startsWith: 'AS' } };
-    } else if (normalizedFloor === 'UB') {
       buildingFilter = {
-        OR: [{ building: 'UB' }, { building: 'TBA' }],
+        AND: [
+          { NOT: { building: { startsWith: 'AN' } } },
+          { NOT: { building: { startsWith: 'AS' } } },
+        ],
       };
+    } else if (normalizedFloor === 'NS') {
+      buildingFilter = {
+        OR: [
+          { building: { startsWith: 'AN' } },
+          { building: { startsWith: 'AS' } },
+        ],
+      };
+    } else if (normalizedFloor === 'NS_NORTH' || normalizedFloor === 'AN' || normalizedFloor === 'ANNEX') {
+      buildingFilter = { building: { startsWith: 'AN' } };
+    } else if (normalizedFloor === 'NS_SOUTH' || normalizedFloor === 'AS') {
+      buildingFilter = { building: { startsWith: 'AS' } };
+    } else if (/^(AN|AS)[0-9G]+$/i.test(normalizedFloor || '')) {
+      buildingFilter = { building: normalizedFloor };
     } else if (normalizedFloor) {
       const floorNum = parseInt(normalizedFloor, 10);
       const paddedFloor = floorNum.toString().padStart(2, '0');
