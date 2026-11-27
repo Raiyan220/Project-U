@@ -186,7 +186,7 @@ const OpenRooms: React.FC = () => {
                         : 'bg-white/10 text-indigo-100 border-white/15 hover:bg-white/20'}`}
                 >
                     <Building2 className="w-4 h-4" />
-                    NS Building (North &amp; South)
+                    ANNEX Building (North &amp; South Wing)
                 </button>
             </div>
 
@@ -227,15 +227,15 @@ const OpenRooms: React.FC = () => {
                                     </>
                                 ) : (
                                     <>
-                                        <option className="bg-indigo-900 text-white" value="">All NS Building (North &amp; South)</option>
-                                        <option className="bg-indigo-900 text-white" value="NS_NORTH">NS North — All AN</option>
-                                        <option className="bg-indigo-900 text-white" value="ANG">NS North — Ground (ANG)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN1">NS North — Floor 1 (AN1)</option>
-                                        <option className="bg-indigo-900 text-white" value="AN2">NS North — Floor 2 (AN2)</option>
-                                        <option className="bg-indigo-900 text-white" value="NS_SOUTH">NS South — All AS</option>
-                                        <option className="bg-indigo-900 text-white" value="ASG">NS South — Ground (ASG)</option>
-                                        <option className="bg-indigo-900 text-white" value="AS1">NS South — Floor 1 (AS1)</option>
-                                        <option className="bg-indigo-900 text-white" value="AS2">NS South — Floor 2 (AS2)</option>
+                                        <option className="bg-indigo-900 text-white" value="">All ANNEX Building (North &amp; South Wing)</option>
+                                        <option className="bg-indigo-900 text-white" value="NS_NORTH">North Wing — All (AN)</option>
+                                        <option className="bg-indigo-900 text-white" value="ANG">North Wing — Ground Floor (ANG)</option>
+                                        <option className="bg-indigo-900 text-white" value="AN1">North Wing — 1st Floor (AN1)</option>
+                                        <option className="bg-indigo-900 text-white" value="AN2">North Wing — 2nd Floor (AN2)</option>
+                                        <option className="bg-indigo-900 text-white" value="NS_SOUTH">South Wing — All (AS)</option>
+                                        <option className="bg-indigo-900 text-white" value="ASG">South Wing — Ground Floor (ASG)</option>
+                                        <option className="bg-indigo-900 text-white" value="AS1">South Wing — 1st Floor (AS1)</option>
+                                        <option className="bg-indigo-900 text-white" value="AS2">South Wing — 2nd Floor (AS2)</option>
                                     </>
                                 )}
                             </select>
@@ -331,7 +331,7 @@ const OpenRooms: React.FC = () => {
                             const tabRooms = rooms.filter((r) =>
                                 buildingTab === 'NS' ? /^(AN|AS)/i.test(r.building) : !/^(AN|AS)/i.test(r.building),
                             );
-                            return `${tabRooms.filter((r) => r.status === 'FREE').length} Free / ${tabRooms.length} ${buildingTab === 'NS' ? 'NS' : 'Main'} Rooms`;
+                            return `${tabRooms.filter((r) => r.status === 'FREE').length} Free / ${tabRooms.length} ${buildingTab === 'NS' ? 'ANNEX' : 'Main'} Rooms`;
                         })()}
                     </div>
                 </div>
@@ -402,9 +402,9 @@ const OpenRooms: React.FC = () => {
                                         : 'Free rest of day';
                         const isLongAvailability = !isBusy && (!room.freeUntil || (room.freeMinutes ?? 0) >= 90);
                         const floorLabel = /^AN/i.test(room.building)
-                            ? `NS North (${room.building})`
+                            ? `ANNEX North (${room.building})`
                             : /^AS/i.test(room.building)
-                                ? `NS South (${room.building})`
+                                ? `ANNEX South (${room.building})`
                                 : `Floor ${room.building}`;
 
                         return (
@@ -466,12 +466,12 @@ const OpenRooms: React.FC = () => {
                                 <div className="flex items-center gap-3">
                                     {buildingTab === 'NS' && (
                                         <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-400/30 text-amber-300 text-xs font-extrabold uppercase tracking-wider">
-                                            NS Wing
+                                            ANNEX Wing
                                         </span>
                                     )}
                                     <h2 className="text-xl font-bold text-white">
                                         {buildingTab === 'NS'
-                                            ? 'NS Building (NS North AN & NS South AS)'
+                                            ? 'ANNEX Building (North Wing AN & South Wing AS)'
                                             : 'Main Building (Floors 7–12)'}
                                     </h2>
                                 </div>
