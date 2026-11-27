@@ -103,21 +103,36 @@ export class AiService {
       { role: 'user', parts: [{ text: message }] },
     ];
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await axios.post(
-      url,
-      {
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        generationConfig: { temperature: 0.6, maxOutputTokens: 450 },
-      },
-      { timeout: 15000 },
-    );
+    const models = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
+    let lastError: unknown;
 
-    const text =
-      res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-    if (!text) throw new Error('Empty Gemini response');
-    return text;
+    for (const model of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await axios.post(
+          url,
+          {
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents,
+            generationConfig: { temperature: 0.6, maxOutputTokens: 450 },
+          },
+          { timeout: 20000 },
+        );
+
+        const text =
+          res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        if (text) return text;
+      } catch (err) {
+        lastError = err;
+        this.logger.warn(
+          `Gemini model ${model} failed (${(err as Error).message})`,
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Empty Gemini response');
   }
 
   private async callGroq(
