@@ -103,13 +103,12 @@ export class AiService {
       { role: 'user', parts: [{ text: message }] },
     ];
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`;
     const res = await axios.post(
       url,
       {
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents,
-        tools: [{ google_search: {} }],
         generationConfig: { temperature: 0.6, maxOutputTokens: 450 },
       },
       { timeout: 15000 },
