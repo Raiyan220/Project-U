@@ -17,6 +17,9 @@ import {
     CheckCircle2,
     AlertTriangle,
     X,
+    HelpCircle,
+    ChevronDown,
+    ChevronUp,
 } from 'lucide-react';
 import { api } from '../lib/axios';
 
@@ -67,6 +70,7 @@ export default function CGPACalculator() {
     const [advisorProvider, setAdvisorProvider] = useState<string | null>(null);
     const [sheetAnalyzing, setSheetAnalyzing] = useState(false);
     const [goalPopupOpen, setGoalPopupOpen] = useState(false);
+    const [showGuide, setShowGuide] = useState(true);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const repeatSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -521,6 +525,86 @@ export default function CGPACalculator() {
                     </div>
                 </div>
 
+                {/* Step-by-Step Operating Guide */}
+                <div className="mb-6 bg-white/10 backdrop-blur-xl rounded-3xl border border-purple-300/25 shadow-xl overflow-hidden">
+                    <button
+                        type="button"
+                        onClick={() => setShowGuide((v) => !v)}
+                        className="w-full px-6 py-4 flex items-center justify-between gap-3 text-left hover:bg-white/5 transition-colors"
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 rounded-xl bg-purple-500/25 border border-purple-400/35 text-purple-200">
+                                <HelpCircle className="w-4 h-4" />
+                            </div>
+                            <div>
+                                <h2 className="text-sm md:text-base font-bold text-white">
+                                    How to Use This CGPA Calculator (Step-by-Step Guide)
+                                </h2>
+                                <p className="text-xs text-purple-200/80">
+                                    Follow Steps 1–4 below or upload your BRACU grade sheet to auto-fill everything
+                                </p>
+                            </div>
+                        </div>
+                        <span className="flex items-center gap-1 text-xs font-bold text-purple-200 shrink-0 px-3 py-1.5 rounded-xl bg-purple-950/50 border border-purple-400/25">
+                            {showGuide ? (
+                                <>
+                                    Hide Guide <ChevronUp className="w-3.5 h-3.5" />
+                                </>
+                            ) : (
+                                <>
+                                    Show Guide <ChevronDown className="w-3.5 h-3.5" />
+                                </>
+                            )}
+                        </span>
+                    </button>
+
+                    <AnimatePresence initial={false}>
+                        {showGuide && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="px-6 pb-5 pt-1 border-t border-white/10"
+                            >
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+                                    <div className="bg-purple-950/40 border border-purple-400/20 rounded-2xl p-3.5">
+                                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 mb-2">
+                                            Step 1 • Standing &amp; Goal
+                                        </span>
+                                        <p className="text-xs text-purple-100 leading-relaxed">
+                                            Enter your <strong>Current CGPA</strong> (e.g. 3.50), <strong>Completed Credits</strong> (e.g. 120), <strong>Total Degree Cr</strong> (e.g. 136), and <strong>Target CGPA</strong>. A live pop-up will immediately tell you if your goal is reachable or if repeating courses is needed.
+                                        </p>
+                                    </div>
+                                    <div className="bg-purple-950/40 border border-amber-400/25 rounded-2xl p-3.5">
+                                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-200 mb-2">
+                                            Step 2 • Repeat Courses
+                                        </span>
+                                        <p className="text-xs text-purple-100 leading-relaxed">
+                                            Planning to retake low grades? Click <strong>+ Add Repeat Course</strong> (add 1, 2, 3+ courses), pick the <strong>Course Credit</strong>, <strong>Current Grade</strong>, and <strong>Expected Grade</strong>. Your old grade is replaced without adding extra credits.
+                                        </p>
+                                    </div>
+                                    <div className="bg-purple-950/40 border border-pink-400/20 rounded-2xl p-3.5">
+                                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-pink-500/25 text-pink-200 mb-2">
+                                            Step 3 • New Courses
+                                        </span>
+                                        <p className="text-xs text-purple-100 leading-relaxed">
+                                            Click <strong>+ Add Course</strong> under <em>This Semester&apos;s New Courses</em> to test upcoming courses and expected grades. Top cards automatically combine your standing, repeats, and new courses into <strong>Projected CGPA</strong>.
+                                        </p>
+                                    </div>
+                                    <div className="bg-purple-950/40 border border-indigo-400/25 rounded-2xl p-3.5">
+                                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 mb-2">
+                                            Step 4 • Grade Sheet &amp; AI
+                                        </span>
+                                        <p className="text-xs text-purple-100 leading-relaxed">
+                                            Want a shortcut? Click <strong>Upload Grade Sheet</strong> in the AI Mentor panel (PDF or image) — it keeps only the <strong>latest grade</strong> for repeated courses, auto-fills your standing, and gives tailored retake advice.
+                                        </p>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+
                 {/* Main 2-Column Layout */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     {/* Left Column (7 cols): Academic Standing + Courses */}
@@ -530,10 +614,15 @@ export default function CGPACalculator() {
                             animate={{ opacity: 1, y: 0 }}
                             className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-white/20 shadow-2xl"
                         >
-                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                <Calculator className="w-5 h-5 text-purple-300" />
-                                Academic Standing &amp; Degree Goal
-                            </h3>
+                            <div className="mb-4">
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <Calculator className="w-5 h-5 text-purple-300" />
+                                    <span>Step 1: Academic Standing &amp; Degree Goal</span>
+                                </h3>
+                                <p className="text-xs text-purple-200/80 mt-0.5">
+                                    Fill in your completed transcript numbers and your target graduation CGPA (leave blank if calculating only this semester&apos;s GPA).
+                                </p>
+                            </div>
                             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                                 <div>
                                     <label className="block text-[11px] text-purple-200 mb-1">Current CGPA</label>
@@ -633,15 +722,15 @@ export default function CGPACalculator() {
                             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                                 <div>
                                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                        Repeat Course Calculator
+                                        Step 2: Repeat Course Calculator
                                         {calculations.cgpaAfterRepeatsOnly !== null && (
                                             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40 text-amber-200">
                                                 After Repeats: {calculations.cgpaAfterRepeatsOnly.toFixed(2)}
                                             </span>
                                         )}
                                     </h2>
-                                    <p className="text-xs text-purple-200/80">
-                                        Replace a previous grade with your expected repeat grade (adjusts CGPA without adding extra credits)
+                                    <p className="text-xs text-purple-200/80 mt-0.5">
+                                        Replace one or more past grades (e.g. D → A) — adjusts your CGPA without adding extra credits to your total.
                                     </p>
                                 </div>
                                 <button
@@ -753,9 +842,9 @@ export default function CGPACalculator() {
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">This Semester&apos;s New Courses</h2>
-                                    <p className="text-xs text-purple-200/80">
-                                        Add new courses to project your Semester GPA &amp; future CGPA
+                                    <h2 className="text-lg font-bold text-white">Step 3: This Semester&apos;s New Courses</h2>
+                                    <p className="text-xs text-purple-200/80 mt-0.5">
+                                        Add brand-new courses you plan to take this semester to calculate Semester GPA &amp; combined Projected CGPA.
                                     </p>
                                 </div>
                                 <button
@@ -855,7 +944,7 @@ export default function CGPACalculator() {
                                 <div>
                                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                         <Sparkles className="w-5 h-5 text-pink-400" />
-                                        AI CGPA Mentor
+                                        Step 4: AI CGPA Mentor
                                         {advisorProvider && (
                                             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-purple-500/30 border border-purple-400/40 text-purple-200">
                                                 {advisorProvider === 'gemini'
@@ -866,8 +955,8 @@ export default function CGPACalculator() {
                                             </span>
                                         )}
                                     </h2>
-                                    <p className="text-xs text-purple-200">
-                                        Upload your grade sheet (PDF/image) or ask about your CGPA plan.
+                                    <p className="text-xs text-purple-200 mt-0.5">
+                                        Upload your BRACU grade sheet (PDF/image) to auto-detect repeats &amp; remaining credits, or ask anything below.
                                     </p>
                                 </div>
                                 <input
