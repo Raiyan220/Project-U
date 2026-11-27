@@ -12,6 +12,14 @@ interface CgpaChatRequest {
   history?: CgpaChatMessage[];
 }
 
+interface AnalyzeGradeSheetRequest {
+  fileBase64: string;
+  mimeType: string;
+  fileName?: string;
+  totalDegreeCredits?: number;
+  targetCGPA?: number;
+}
+
 @ApiTags('ai')
 @Controller('ai')
 export class AiController {
@@ -32,5 +40,17 @@ export class AiController {
       body.context || {},
       Array.isArray(body.history) ? body.history : [],
     );
+  }
+
+  @Post('analyze-gradesheet')
+  @ApiOperation({ summary: 'Analyze an uploaded grade sheet (PDF/image/CSV) using AI' })
+  async analyzeGradeSheet(@Body() body: AnalyzeGradeSheetRequest) {
+    if (!body?.fileBase64 || !body?.mimeType) {
+      return {
+        reply: 'Please upload a valid grade sheet file (PDF, image, CSV, or TXT).',
+        provider: 'local',
+      };
+    }
+    return this.aiService.analyzeGradeSheet(body);
   }
 }

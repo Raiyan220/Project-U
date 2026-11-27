@@ -19,6 +19,29 @@ export interface CgpaChatMessage {
   text: string;
 }
 
+export interface GradeSheetCourse {
+  courseCode: string;
+  semester?: string;
+  credits: number;
+  grade: string;
+  gradePoint: number;
+}
+
+const BRACU_GRADE_POINTS: Record<string, number> = {
+  'A+': 4.0,
+  A: 4.0,
+  'A-': 3.7,
+  'B+': 3.3,
+  B: 3.0,
+  'B-': 2.7,
+  'C+': 2.3,
+  C: 2.0,
+  'C-': 1.7,
+  'D+': 1.3,
+  D: 1.0,
+  F: 0.0,
+};
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -207,5 +230,197 @@ export class AiService {
     }
 
     return `With ${done} credits at ${curr.toFixed(2)} CGPA and ${remaining} credits left, your max possible CGPA is ${maxCGPA.toFixed(2)}. (Tip: add a free GEMINI_API_KEY or GROQ_API_KEY in Render Environment for full conversational AI replies!)`;
+  }
+
+  async analyzeGradeSheet(input: {
+    fileBase64: string;
+    mimeType: string;
+    fileName?: string;
+    totalDegreeCredits?: number;
+    targetCGPA?: number;
+  }): Promise<{
+    reply: string;
+    provider: string;
+    extracted?: {
+      currentCGPA: number;
+      completedCredits: number;
+      remainingCredits: number;
+      maxPossibleCGPA: number;
+      repeatedCourses: { courseCode: string; attempts: string[]; latestGrade: string }[];
+      lowGradeCourses: { courseCode: string; credits: number; grade: string }[];
+    };
+  }> {
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!geminiKey) {
+      return {
+        reply: 'Grade sheet analysis requires GEMINI_API_KEY to be configured on the server.',
+        provider: 'local',
+      };
+    }
+
+    const totalDegree = input.totalDegreeCredits && input.totalDegreeCredits > 0 ? input.totalDegreeCredits : 136;
+    const isText = input.mimeType.startsWith('text/') || input.mimeType.includes('csv');
+    const prompt = [
+      'You are analyzing a BRAC University student grade sheet / transcript.',
+      'Extract EVERY course attempt in chronological order from oldest semester to newest semester.',
+      'BRACU grade scale: A+/A=4.00, A-=3.70, B+=3.30, B=3.00, B-=2.70, C+=2.30, C=2.00, C-=1.70, D+=1.30, D=1.00, F=0.00.',
+      'Ignore non-GPA grades like W, I, NT, S, U, or P when listing graded courses.',
+      'If a course was repeated/retaken, list ALL attempts in chronological order so we can keep ONLY the LATEST grade.',
+      'Return ONLY valid JSON (no markdown fences, no extra text) with this exact schema:',
+      '{',
+      '  "courses": [{"courseCode": "CSE110", "semester": "Spring 2024", "credits": 3, "grade": "A"}],',
+      '  "recommendedFocus": "1-2 sentences of tailored advice on what grades/courses to focus on next"',
+      '}',
+    ].join('\n');
+
+    const parts: any[] = [{ text: prompt }];
+    if (isText) {
+      const decoded = Buffer.from(input.fileBase64, 'base64').toString('utf8');
+      parts.push({ text: `Grade sheet content (${input.fileName || 'file'}):\n${decoded.slice(0, 30000)}` });
+    } else {
+      parts.push({
+        inlineData: {
+          mimeType: input.mimeType,
+          data: input.fileBase64,
+        },
+      });
+    }
+
+    const models = ['gemini-flash-lite-latest', 'gemini-flash-latest'];
+    let rawText = '';
+    for (const model of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+        const res = await axios.post(
+          url,
+          {
+            contents: [{ role: 'user', parts }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+          },
+          { timeout: 30000 },
+        );
+        rawText = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        if (rawText) break;
+      } catch (err) {
+        this.logger.warn(`Grade sheet analysis on ${model} failed: ${(err as Error).message}`);
+      }
+    }
+
+    if (!rawText) {
+      return {
+        reply: 'Could not read the grade sheet right now. Please try a clearer screenshot or PDF.',
+        provider: 'local',
+      };
+    }
+
+    try {
+      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleaned) as {
+        courses?: { courseCode: string; semester?: string; credits: number; grade: string }[];
+        recommendedFocus?: string;
+      };
+
+      const attemptsByCourse = new Map<string, { semester?: string; credits: number; grade: string }[]>();
+      for (const c of parsed.courses || []) {
+        const code = (c.courseCode || '').trim().toUpperCase();
+        const grade = (c.grade || '').trim().toUpperCase();
+        const credits = Number(c.credits) || 0;
+        if (!code || credits <= 0 || !(grade in BRACU_GRADE_POINTS)) continue;
+        const list = attemptsByCourse.get(code) || [];
+        list.push({ semester: c.semester, credits, grade });
+        attemptsByCourse.set(code, list);
+      }
+
+      if (attemptsByCourse.size === 0) {
+        return {
+          reply: 'I could not find graded courses in that file. Please upload a clearer BRACU grade sheet PDF or screenshot.',
+          provider: 'gemini',
+        };
+      }
+
+      let totalPoints = 0;
+      let completedCredits = 0;
+      const repeatedCourses: { courseCode: string; attempts: string[]; latestGrade: string }[] = [];
+      const lowGradeCourses: { courseCode: string; credits: number; grade: string }[] = [];
+
+      for (const [code, attempts] of attemptsByCourse.entries()) {
+        const latest = attempts[attempts.length - 1];
+        const gp = BRACU_GRADE_POINTS[latest.grade];
+        totalPoints += gp * latest.credits;
+        completedCredits += latest.credits;
+
+        if (attempts.length > 1) {
+          repeatedCourses.push({
+            courseCode: code,
+            attempts: attempts.map((a) => (a.semester ? `${a.grade} (${a.semester})` : a.grade)),
+            latestGrade: latest.grade,
+          });
+        }
+
+        if (gp <= 1.7) {
+          lowGradeCourses.push({ courseCode: code, credits: latest.credits, grade: latest.grade });
+        }
+      }
+
+      const currentCGPA = completedCredits > 0 ? totalPoints / completedCredits : 0;
+      const remainingCredits = Math.max(0, totalDegree - completedCredits);
+      const maxPossibleCGPA = totalDegree > 0
+        ? Math.min(4.0, (totalPoints + 4.0 * remainingCredits) / totalDegree)
+        : currentCGPA;
+
+      const lines: string[] = [
+        `Grade Sheet Analyzed (${attemptsByCourse.size} unique courses):`,
+        `• Current CGPA (latest grades only): ${currentCGPA.toFixed(2)}`,
+        `• Completed Credits: ${completedCredits} / ${totalDegree} (${remainingCredits} credits left)`,
+        `• Max Possible CGPA (with straight 4.00s): ${maxPossibleCGPA.toFixed(2)}`,
+      ];
+
+      if (input.targetCGPA && input.targetCGPA > 0 && remainingCredits > 0) {
+        const reqGPA = (input.targetCGPA * totalDegree - totalPoints) / remainingCredits;
+        lines.push(
+          reqGPA <= 4.0
+            ? `• To hit ${input.targetCGPA.toFixed(2)} CGPA: you need ${Math.max(0, reqGPA).toFixed(2)} avg GPA across your remaining ${remainingCredits} credits.`
+            : `• Target ${input.targetCGPA.toFixed(2)} needs ${reqGPA.toFixed(2)} GPA (> 4.00) on remaining ${remainingCredits} credits alone — retaking low-grade courses is needed.`,
+        );
+      }
+
+      if (repeatedCourses.length > 0) {
+        lines.push(
+          `\nRepeated Courses (counted latest grade only): ${repeatedCourses
+            .map((r) => `${r.courseCode}: ${r.attempts.join(' → ')} [kept ${r.latestGrade}]`)
+            .join('; ')}`,
+        );
+      }
+
+      if (lowGradeCourses.length > 0) {
+        lines.push(
+          `\nBest Retake Candidates (C- or below): ${lowGradeCourses
+            .map((c) => `${c.courseCode} (${c.grade}, ${c.credits} cr)`)
+            .join(', ')}`,
+        );
+      }
+
+      if (parsed.recommendedFocus) {
+        lines.push(`\nAdvice: ${parsed.recommendedFocus}`);
+      }
+
+      return {
+        reply: lines.join('\n'),
+        provider: 'gemini',
+        extracted: {
+          currentCGPA: Number(currentCGPA.toFixed(2)),
+          completedCredits,
+          remainingCredits,
+          maxPossibleCGPA: Number(maxPossibleCGPA.toFixed(2)),
+          repeatedCourses,
+          lowGradeCourses,
+        },
+      };
+    } catch {
+      return {
+        reply: rawText,
+        provider: 'gemini',
+      };
+    }
   }
 }

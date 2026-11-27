@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,6 +13,7 @@ import {
     Award,
     BookOpen,
     Target,
+    Upload,
 } from 'lucide-react';
 import { api } from '../lib/axios';
 
@@ -43,23 +44,19 @@ const gradePoints: Record<string, number> = {
 const grades = Object.keys(gradePoints);
 const retakePreviousGrades = ['F', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-'];
 
-const DEFAULT_COURSES: Course[] = [
-    { id: '1', name: '', credits: 3, grade: 'A', isRetake: false, previousGrade: 'D' },
-    { id: '2', name: '', credits: 3, grade: 'A-', isRetake: false, previousGrade: 'D' },
-    { id: '3', name: '', credits: 3, grade: 'B+', isRetake: false, previousGrade: 'D' },
-];
-
 export default function CGPACalculator() {
-    const [courses, setCourses] = useState<Course[]>(DEFAULT_COURSES);
+    const [courses, setCourses] = useState<Course[]>([]);
     const [currentCGPA, setCurrentCGPA] = useState<string>('');
     const [completedCredits, setCompletedCredits] = useState<string>('');
-    const [totalDegreeCredits, setTotalDegreeCredits] = useState<string>('136');
-    const [targetCGPA, setTargetCGPA] = useState<string>('3.50');
-    const [creditsPerSem, setCreditsPerSem] = useState<string>('12');
+    const [totalDegreeCredits, setTotalDegreeCredits] = useState<string>('');
+    const [targetCGPA, setTargetCGPA] = useState<string>('');
+    const [creditsPerSem, setCreditsPerSem] = useState<string>('');
     const [advisorQuestion, setAdvisorQuestion] = useState<string>('');
     const [advisorMessages, setAdvisorMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
     const [advisorLoading, setAdvisorLoading] = useState(false);
     const [advisorProvider, setAdvisorProvider] = useState<string | null>(null);
+    const [sheetAnalyzing, setSheetAnalyzing] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     // Exact, unrounded semester & cumulative calculations (including retake replacement logic)
     const calculations = useMemo(() => {
@@ -86,7 +83,8 @@ export default function CGPACalculator() {
             }
         }
 
-        const semesterGPA = semCredits > 0 ? semPoints / semCredits : 0;
+        const hasCourses = semCredits > 0;
+        const semesterGPA = hasCourses ? semPoints / semCredits : null;
 
         const parsedCurr = parseFloat(currentCGPA);
         const parsedDone = parseFloat(completedCredits);
@@ -99,21 +97,23 @@ export default function CGPACalculator() {
             parsedCurr <= 4 &&
             parsedDone >= 0;
 
-        let projectedCGPA = semesterGPA;
-        let projectedCredits = newOnlyCredits;
-        let cgpaDelta = 0;
+        let projectedCGPA: number | null = semesterGPA;
+        let projectedCredits: number | null = hasCourses ? newOnlyCredits : null;
+        let cgpaDelta: number | null = null;
 
         if (hasStanding) {
             const basePoints = parsedCurr * parsedDone;
             const totalPoints = Math.max(0, basePoints + newOnlyPoints + retakeDeltaPoints);
-            projectedCredits = parsedDone + newOnlyCredits;
-            projectedCGPA = projectedCredits > 0
-                ? Math.min(4.0, totalPoints / projectedCredits)
-                : 0;
+            const nextCredits = parsedDone + newOnlyCredits;
+            projectedCredits = nextCredits;
+            projectedCGPA = nextCredits > 0
+                ? Math.min(4.0, totalPoints / nextCredits)
+                : parsedCurr;
             cgpaDelta = projectedCGPA - parsedCurr;
         }
 
         return {
+            hasCourses,
             semesterGPA,
             semCredits,
             newOnlyCredits,
@@ -147,12 +147,10 @@ export default function CGPACalculator() {
         const done = calculations.parsedDone;
         const remaining = Math.max(0, total - done);
 
-        // Projected after this semester's draft courses
-        const projRemaining = Math.max(0, total - calculations.projectedCredits);
-        const projMaxCGPA = Math.min(
-            4.0,
-            (calculations.projectedCGPA * calculations.projectedCredits + 4.0 * projRemaining) / total,
-        );
+        const projCr = calculations.projectedCredits ?? done;
+        const projCg = calculations.projectedCGPA ?? curr;
+        const projRemaining = Math.max(0, total - projCr);
+        const projMaxCGPA = Math.min(4.0, (projCg * projCr + 4.0 * projRemaining) / total);
 
         if (remaining <= 0) {
             return {
@@ -175,7 +173,6 @@ export default function CGPACalculator() {
         const semestersLeft = Math.ceil(remaining / perSem);
         const possible = requiredGPA <= 4.0;
 
-        // How many 3-credit D (1.00) -> A (4.00) retakes would close the gap if impossible
         const deficitPoints = Math.max(0, target * total - (curr * done + 4.0 * remaining));
         const retakesNeeded = deficitPoints > 0 ? Math.ceil(deficitPoints / (3 * 3.0)) : 0;
 
@@ -206,7 +203,7 @@ export default function CGPACalculator() {
 
     const askAdvisor = async (customPrompt?: string) => {
         const q = (customPrompt ?? advisorQuestion).trim();
-        if (!q || advisorLoading) return;
+        if (!q || advisorLoading || sheetAnalyzing) return;
 
         const nextHistory = [...advisorMessages, { role: 'user' as const, text: q }];
         setAdvisorMessages(nextHistory);
@@ -214,9 +211,9 @@ export default function CGPACalculator() {
         setAdvisorLoading(true);
 
         try {
-            const total = totalDegreeCredits ? parseFloat(totalDegreeCredits) : 136;
+            const total = totalDegreeCredits ? parseFloat(totalDegreeCredits) : undefined;
             const target = targetCGPA ? parseFloat(targetCGPA) : undefined;
-            const perSem = creditsPerSem ? parseFloat(creditsPerSem) : 12;
+            const perSem = creditsPerSem ? parseFloat(creditsPerSem) : undefined;
 
             const res = await api.post<{ reply: string; provider: string }>('/ai/cgpa-chat', {
                 message: q,
@@ -230,7 +227,7 @@ export default function CGPACalculator() {
                     requiredGPA: goalAnalysis?.requiredGPA,
                     maxCGPA: goalAnalysis?.maxCGPA,
                     remainingCredits: goalAnalysis?.remaining,
-                    semesterGPA: Number(calculations.semesterGPA.toFixed(2)),
+                    semesterGPA: calculations.semesterGPA !== null ? Number(calculations.semesterGPA.toFixed(2)) : undefined,
                     semesterCredits: calculations.semCredits,
                 },
             });
@@ -252,6 +249,69 @@ export default function CGPACalculator() {
         }
     };
 
+    const handleGradeSheetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file || sheetAnalyzing) return;
+
+        if (file.size > 6 * 1024 * 1024) {
+            setAdvisorMessages((prev) => [
+                ...prev,
+                { role: 'ai', text: 'File is too large (max 6 MB). Please upload a smaller PDF or screenshot.' },
+            ]);
+            return;
+        }
+
+        const nextHistory = [
+            ...advisorMessages,
+            { role: 'user' as const, text: `Uploaded grade sheet: ${file.name}` },
+        ];
+        setAdvisorMessages(nextHistory);
+        setSheetAnalyzing(true);
+
+        try {
+            const base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = reader.result as string;
+                    resolve(result.includes(',') ? result.split(',')[1] : result);
+                };
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsDataURL(file);
+            });
+
+            const res = await api.post<{
+                reply: string;
+                provider: string;
+                extracted?: {
+                    currentCGPA: number;
+                    completedCredits: number;
+                };
+            }>('/ai/analyze-gradesheet', {
+                fileBase64: base64,
+                mimeType: file.type || 'application/pdf',
+                fileName: file.name,
+                totalDegreeCredits: totalDegreeCredits ? parseFloat(totalDegreeCredits) : 136,
+                targetCGPA: targetCGPA ? parseFloat(targetCGPA) : undefined,
+            });
+
+            setAdvisorProvider(res.data.provider);
+            if (res.data.extracted) {
+                setCurrentCGPA(res.data.extracted.currentCGPA.toFixed(2));
+                setCompletedCredits(String(res.data.extracted.completedCredits));
+                if (!totalDegreeCredits) setTotalDegreeCredits('136');
+            }
+            setAdvisorMessages([...nextHistory, { role: 'ai', text: res.data.reply }]);
+        } catch {
+            setAdvisorMessages([
+                ...nextHistory,
+                { role: 'ai', text: 'Could not analyze that grade sheet right now. Please try a clearer PDF or screenshot.' },
+            ]);
+        } finally {
+            setSheetAnalyzing(false);
+        }
+    };
+
     const addCourse = () => {
         setCourses((prev) => [
             ...prev,
@@ -267,9 +327,7 @@ export default function CGPACalculator() {
     };
 
     const removeCourse = (id: string) => {
-        if (courses.length > 1) {
-            setCourses((prev) => prev.filter((c) => c.id !== id));
-        }
+        setCourses((prev) => prev.filter((c) => c.id !== id));
     };
 
     const updateCourse = <K extends keyof Course>(id: string, field: K, value: Course[K]) => {
@@ -277,16 +335,20 @@ export default function CGPACalculator() {
     };
 
     const resetCalculator = () => {
-        setCourses(DEFAULT_COURSES.map((c, i) => ({ ...c, id: `${Date.now()}-${i}` })));
+        setCourses([]);
         setCurrentCGPA('');
         setCompletedCredits('');
-        setTotalDegreeCredits('136');
-        setTargetCGPA('3.50');
-        setCreditsPerSem('12');
+        setTotalDegreeCredits('');
+        setTargetCGPA('');
+        setCreditsPerSem('');
     };
 
-    const totalDeg = Math.max(1, parseFloat(totalDegreeCredits) || 136);
-    const completionPct = Math.min(100, Math.round((calculations.projectedCredits / totalDeg) * 100));
+    const parsedTotalDeg = parseFloat(totalDegreeCredits);
+    const totalDegLabel = !Number.isNaN(parsedTotalDeg) && parsedTotalDeg > 0 ? parsedTotalDeg : null;
+    const completionPct =
+        calculations.projectedCredits !== null && totalDegLabel
+            ? Math.min(100, Math.round((calculations.projectedCredits / totalDegLabel) * 100))
+            : 0;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 p-4 md:p-8 font-sans">
@@ -306,7 +368,7 @@ export default function CGPACalculator() {
                                 CGPA Calculator &amp; AI Mentor
                             </h1>
                             <p className="text-xs md:text-sm text-purple-200">
-                                Accurate BRACU GPA, retake replacement math, degree roadmap &amp; live AI mentoring
+                                Enter your standing or upload a grade sheet to calculate your roadmap &amp; chat with AI
                             </p>
                         </div>
                     </div>
@@ -316,7 +378,7 @@ export default function CGPACalculator() {
                             className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-purple-100 text-xs font-semibold rounded-xl transition-all border border-white/15 flex items-center gap-1.5"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            Reset
+                            Clear All
                         </button>
                         <Link
                             to="/dashboard"
@@ -334,10 +396,13 @@ export default function CGPACalculator() {
                             <p className="text-[11px] text-purple-200 font-semibold uppercase tracking-wider">Semester GPA</p>
                             <BookOpen className="w-4 h-4 text-purple-200/80" />
                         </div>
-                        <p className="text-3xl font-black text-white">{calculations.semesterGPA.toFixed(2)}</p>
+                        <p className="text-3xl font-black text-white">
+                            {calculations.semesterGPA !== null ? calculations.semesterGPA.toFixed(2) : '—'}
+                        </p>
                         <p className="text-[11px] text-purple-200/80 mt-1">
-                            {calculations.semCredits} cr ({calculations.newOnlyCredits} new
-                            {calculations.retakeCredits > 0 ? ` + ${calculations.retakeCredits} retake` : ''})
+                            {calculations.hasCourses
+                                ? `${calculations.semCredits} cr (${calculations.newOnlyCredits} new${calculations.retakeCredits > 0 ? ` + ${calculations.retakeCredits} retake` : ''})`
+                                : 'No courses added yet'}
                         </p>
                     </div>
 
@@ -347,8 +412,10 @@ export default function CGPACalculator() {
                             <TrendingUp className="w-4 h-4 text-pink-100/80" />
                         </div>
                         <div className="flex items-baseline gap-2">
-                            <p className="text-3xl font-black text-white">{calculations.projectedCGPA.toFixed(2)}</p>
-                            {calculations.hasStanding && (
+                            <p className="text-3xl font-black text-white">
+                                {calculations.projectedCGPA !== null ? calculations.projectedCGPA.toFixed(2) : '—'}
+                            </p>
+                            {calculations.cgpaDelta !== null && calculations.hasCourses && (
                                 <span
                                     className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
                                         calculations.cgpaDelta >= 0
@@ -364,7 +431,7 @@ export default function CGPACalculator() {
                         <p className="text-[11px] text-pink-100/80 mt-1">
                             {calculations.hasStanding
                                 ? `From ${calculations.parsedCurr.toFixed(2)} (${calculations.parsedDone} cr)`
-                                : 'Enter standing below to project'}
+                                : 'Enter standing or add courses'}
                         </p>
                     </div>
 
@@ -374,8 +441,10 @@ export default function CGPACalculator() {
                             <Award className="w-4 h-4 text-purple-200/80" />
                         </div>
                         <p className="text-3xl font-black text-white">
-                            {calculations.projectedCredits}
-                            <span className="text-base font-semibold text-purple-200">/{totalDeg} cr</span>
+                            {calculations.projectedCredits !== null ? calculations.projectedCredits : '—'}
+                            {totalDegLabel && (
+                                <span className="text-base font-semibold text-purple-200">/{totalDegLabel} cr</span>
+                            )}
                         </p>
                         <div className="w-full h-1.5 bg-purple-950/60 rounded-full mt-2 overflow-hidden">
                             <div
@@ -391,12 +460,12 @@ export default function CGPACalculator() {
                             <Target className="w-4 h-4 text-purple-200/80" />
                         </div>
                         <p className="text-3xl font-black text-white">
-                            {goalAnalysis ? goalAnalysis.maxCGPA.toFixed(2) : '4.00'}
+                            {goalAnalysis ? goalAnalysis.maxCGPA.toFixed(2) : '—'}
                         </p>
                         <p className="text-[11px] text-purple-200/80 mt-1">
                             {goalAnalysis
                                 ? `With straight 4.00s (${goalAnalysis.remaining} cr left)`
-                                : 'Enter standing for ceiling'}
+                                : 'Enter standing & goal below'}
                         </p>
                     </div>
                 </div>
@@ -405,7 +474,6 @@ export default function CGPACalculator() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     {/* Left Column (7 cols): Academic Standing + Courses */}
                     <div className="lg:col-span-7 space-y-6">
-                        {/* Unified Academic Standing & Degree Target Card */}
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -449,9 +517,10 @@ export default function CGPACalculator() {
                                         min="1"
                                         max="250"
                                         step="1"
+                                        placeholder="e.g. 136"
                                         value={totalDegreeCredits}
                                         onChange={(e) => setTotalDegreeCredits(e.target.value)}
-                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                 </div>
                                 <div>
@@ -461,9 +530,10 @@ export default function CGPACalculator() {
                                         min="0"
                                         max="4"
                                         step="0.01"
+                                        placeholder="e.g. 3.50"
                                         value={targetCGPA}
                                         onChange={(e) => setTargetCGPA(e.target.value)}
-                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                 </div>
                                 <div className="col-span-2 sm:col-span-1">
@@ -473,9 +543,10 @@ export default function CGPACalculator() {
                                         min="1"
                                         max="24"
                                         step="1"
+                                        placeholder="12"
                                         value={creditsPerSem}
                                         onChange={(e) => setCreditsPerSem(e.target.value)}
-                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                        className="w-full bg-purple-950/50 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                 </div>
                             </div>
@@ -501,7 +572,7 @@ export default function CGPACalculator() {
                             )}
                         </motion.div>
 
-                        {/* This Semester's Courses (supports New + Retake courses) */}
+                        {/* This Semester's Courses */}
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -511,7 +582,7 @@ export default function CGPACalculator() {
                                 <div>
                                     <h2 className="text-lg font-bold text-white">This Semester&apos;s Courses</h2>
                                     <p className="text-xs text-purple-200/80">
-                                        Toggle <strong>Retake</strong> to replace an older grade without adding extra credits
+                                        Add courses manually or toggle <strong>Retake</strong> to replace an older grade
                                     </p>
                                 </div>
                                 <button
@@ -523,109 +594,121 @@ export default function CGPACalculator() {
                                 </button>
                             </div>
 
-                            <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 custom-scrollbar">
-                                {courses.map((course, index) => (
-                                    <div
-                                        key={course.id}
-                                        className="bg-purple-950/35 rounded-2xl p-4 border border-purple-400/20 hover:border-purple-400/45 transition-all space-y-3"
+                            {courses.length === 0 ? (
+                                <div className="text-center py-10 px-4 rounded-2xl bg-purple-950/30 border border-dashed border-purple-400/25">
+                                    <p className="text-sm text-purple-200 mb-3">No courses added yet.</p>
+                                    <button
+                                        onClick={addCourse}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600/50 hover:bg-purple-600/70 text-white text-xs font-bold border border-purple-400/30 transition-all"
                                     >
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-xs font-bold text-purple-300 w-6">#{index + 1}</span>
-                                            <input
-                                                type="text"
-                                                placeholder="Course code (e.g. CSE220)"
-                                                value={course.name}
-                                                onChange={(e) => updateCourse(course.id, 'name', e.target.value)}
-                                                className="flex-1 min-w-[140px] bg-purple-950/50 border border-purple-400/25 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => updateCourse(course.id, 'isRetake', !course.isRetake)}
-                                                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
-                                                    course.isRetake
-                                                        ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
-                                                        : 'bg-purple-900/40 border-purple-400/25 text-purple-200 hover:bg-purple-800/40'
-                                                }`}
-                                            >
-                                                {course.isRetake ? 'Retake: ON' : 'New Course'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => removeCourse(course.id)}
-                                                disabled={courses.length === 1}
-                                                className="p-2 text-red-400 hover:bg-red-500/15 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                                                title="Remove course"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </div>
+                                        <Plus className="w-4 h-4" />
+                                        Add Your First Course
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {courses.map((course, index) => (
+                                        <div
+                                            key={course.id}
+                                            className="bg-purple-950/35 rounded-2xl p-4 border border-purple-400/20 hover:border-purple-400/45 transition-all space-y-3"
+                                        >
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="text-xs font-bold text-purple-300 w-6">#{index + 1}</span>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Course code (e.g. CSE220)"
+                                                    value={course.name}
+                                                    onChange={(e) => updateCourse(course.id, 'name', e.target.value)}
+                                                    className="flex-1 min-w-[140px] bg-purple-950/50 border border-purple-400/25 rounded-xl px-3 py-2 text-sm text-white placeholder-purple-300/40 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateCourse(course.id, 'isRetake', !course.isRetake)}
+                                                    className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                                                        course.isRetake
+                                                            ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
+                                                            : 'bg-purple-900/40 border-purple-400/25 text-purple-200 hover:bg-purple-800/40'
+                                                    }`}
+                                                >
+                                                    {course.isRetake ? 'Retake: ON' : 'New Course'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeCourse(course.id)}
+                                                    className="p-2 text-red-400 hover:bg-red-500/15 rounded-xl transition-all"
+                                                    title="Remove course"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
 
-                                        <div className={`grid gap-3 ${course.isRetake ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                                            <div>
-                                                <label className="block text-[10px] text-purple-300 mb-1">Credits</label>
-                                                <select
-                                                    value={course.credits}
-                                                    onChange={(e) => updateCourse(course.id, 'credits', parseFloat(e.target.value))}
-                                                    className="w-full bg-purple-950/80 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    style={{ colorScheme: 'dark' }}
-                                                >
-                                                    <option value={0.75}>0.75 Cr</option>
-                                                    <option value={1}>1.0 Cr</option>
-                                                    <option value={1.5}>1.5 Cr</option>
-                                                    <option value={2}>2.0 Cr</option>
-                                                    <option value={3}>3.0 Cr</option>
-                                                    <option value={4}>4.0 Cr</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] text-purple-300 mb-1">
-                                                    {course.isRetake ? 'New Grade' : 'Expected Grade'}
-                                                </label>
-                                                <select
-                                                    value={course.grade}
-                                                    onChange={(e) => updateCourse(course.id, 'grade', e.target.value)}
-                                                    className="w-full bg-purple-950/80 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                                    style={{ colorScheme: 'dark' }}
-                                                >
-                                                    {grades.map((g) => (
-                                                        <option key={g} value={g}>
-                                                            {g} ({gradePoints[g].toFixed(2)})
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            {course.isRetake && (
+                                            <div className={`grid gap-3 ${course.isRetake ? 'grid-cols-3' : 'grid-cols-2'}`}>
                                                 <div>
-                                                    <label className="block text-[10px] text-amber-200 mb-1">Previous Grade</label>
+                                                    <label className="block text-[10px] text-purple-300 mb-1">Credits</label>
                                                     <select
-                                                        value={course.previousGrade}
-                                                        onChange={(e) => updateCourse(course.id, 'previousGrade', e.target.value)}
-                                                        className="w-full bg-amber-950/60 border border-amber-400/40 rounded-xl px-3 py-2 text-sm text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                        value={course.credits}
+                                                        onChange={(e) => updateCourse(course.id, 'credits', parseFloat(e.target.value))}
+                                                        className="w-full bg-purple-950/80 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                                                         style={{ colorScheme: 'dark' }}
                                                     >
-                                                        {retakePreviousGrades.map((g) => (
+                                                        <option value={0.75}>0.75 Cr</option>
+                                                        <option value={1}>1.0 Cr</option>
+                                                        <option value={1.5}>1.5 Cr</option>
+                                                        <option value={2}>2.0 Cr</option>
+                                                        <option value={3}>3.0 Cr</option>
+                                                        <option value={4}>4.0 Cr</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] text-purple-300 mb-1">
+                                                        {course.isRetake ? 'New Grade' : 'Expected Grade'}
+                                                    </label>
+                                                    <select
+                                                        value={course.grade}
+                                                        onChange={(e) => updateCourse(course.id, 'grade', e.target.value)}
+                                                        className="w-full bg-purple-950/80 border border-purple-400/30 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                                        style={{ colorScheme: 'dark' }}
+                                                    >
+                                                        {grades.map((g) => (
                                                             <option key={g} value={g}>
                                                                 {g} ({gradePoints[g].toFixed(2)})
                                                             </option>
                                                         ))}
                                                     </select>
                                                 </div>
-                                            )}
+                                                {course.isRetake && (
+                                                    <div>
+                                                        <label className="block text-[10px] text-amber-200 mb-1">Previous Grade</label>
+                                                        <select
+                                                            value={course.previousGrade}
+                                                            onChange={(e) => updateCourse(course.id, 'previousGrade', e.target.value)}
+                                                            className="w-full bg-amber-950/60 border border-amber-400/40 rounded-xl px-3 py-2 text-sm text-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                                            style={{ colorScheme: 'dark' }}
+                                                        >
+                                                            {retakePreviousGrades.map((g) => (
+                                                                <option key={g} value={g}>
+                                                                    {g} ({gradePoints[g].toFixed(2)})
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
                         </motion.div>
                     </div>
 
-                    {/* Right Column (5 cols): AI CGPA Mentor + BRACU Grade Scale */}
+                    {/* Right Column (5 cols): AI CGPA Mentor + Grade Sheet Upload + BRACU Grade Scale */}
                     <div className="lg:col-span-5 space-y-6">
                         <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             className="bg-white/10 backdrop-blur-xl rounded-3xl p-6 border border-purple-400/30 shadow-2xl"
                         >
-                            <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                                 <div>
                                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                         <Sparkles className="w-5 h-5 text-pink-400" />
@@ -641,9 +724,29 @@ export default function CGPACalculator() {
                                         )}
                                     </h2>
                                     <p className="text-xs text-purple-200">
-                                        Ask about target CGPA, retakes, semester load, or study strategy.
+                                        Upload your grade sheet (PDF/image) or ask about your CGPA plan.
                                     </p>
                                 </div>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".pdf,image/*,.csv,.txt"
+                                    onChange={handleGradeSheetUpload}
+                                    className="hidden"
+                                />
+                                <button
+                                    type="button"
+                                    disabled={sheetAnalyzing}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                                >
+                                    {sheetAnalyzing ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Upload className="w-3.5 h-3.5" />
+                                    )}
+                                    {sheetAnalyzing ? 'Analyzing...' : 'Upload Grade Sheet'}
+                                </button>
                             </div>
 
                             <div className="flex flex-wrap gap-1.5 mb-3">
@@ -678,7 +781,7 @@ export default function CGPACalculator() {
                                 />
                                 <button
                                     type="submit"
-                                    disabled={advisorLoading}
+                                    disabled={advisorLoading || sheetAnalyzing}
                                     className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold flex items-center gap-1.5 disabled:opacity-50"
                                 >
                                     <Send className="w-4 h-4" />
@@ -686,12 +789,12 @@ export default function CGPACalculator() {
                                 </button>
                             </form>
 
-                            {(advisorMessages.length > 0 || advisorLoading) && (
-                                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
-                                    {advisorLoading && (
+                            {(advisorMessages.length > 0 || advisorLoading || sheetAnalyzing) && (
+                                <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar p-3 rounded-xl bg-purple-950/40 border border-purple-400/20">
+                                    {(advisorLoading || sheetAnalyzing) && (
                                         <div className="text-xs p-2.5 rounded-lg bg-indigo-950/60 text-purple-200 mr-6 border border-purple-400/20 flex items-center gap-2">
                                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                            Thinking...
+                                            {sheetAnalyzing ? 'Analyzing grade sheet (checking repeat courses)...' : 'Thinking...'}
                                         </div>
                                     )}
                                     {[...advisorMessages].reverse().map((m, idx) => (
