@@ -40,14 +40,14 @@ export default function LandingPage() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.8 }}
                     >
-                        <h1 className="text-6xl md:text-7xl font-bold text-white mb-6">
-                            Never Miss a{' '}
+                        <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
+                            BRACU Connect,{' '}
                             <span className="bg-gradient-to-r from-yellow-200 to-pink-200 bg-clip-text text-transparent">
-                                Seat Opening
+                                Supercharged.
                             </span>
                         </h1>
-                        <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
-                            Your <span className="font-bold text-white">BRACU Connect+</span> &amp; <span className="font-bold text-white">PrePreReg</span> companion. Track live <span className="font-bold">Connect</span> seat status, build smart routines, find open rooms, and plan with the AI CGPA Mentor.
+                        <p className="text-lg md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
+                            Track live <span className="font-bold text-white">BRACU Connect</span> seat openings, get instant drop alerts, build clash-free routines, find open NS &amp; Main rooms, and plan with your <span className="font-bold text-white">AI CGPA Mentor</span>.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
