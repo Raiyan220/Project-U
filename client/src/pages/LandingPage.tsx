@@ -17,13 +17,20 @@ export default function LandingPage() {
         <div className="min-h-screen bg-gradient-to-br from-blue-600 via-purple-600 to-pink-500">
             <div className="min-h-screen backdrop-blur-sm bg-black/10 flex items-center justify-center p-4">
                 <div className="absolute top-6 left-6 md:top-8 md:left-8 flex items-center gap-2">
-                    <div className="flex items-center space-x-2">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(139,92,246,0.5)]">
-                            <span className="text-white font-black text-2xl">U</span>
+                    <div className="flex items-center space-x-2.5">
+                        <img
+                            src="/uniflow-logo.svg"
+                            alt="UniFlow — BRACU Connect+"
+                            className="w-10 h-10 rounded-xl shadow-[0_0_15px_rgba(139,92,246,0.5)]"
+                        />
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-blue-200 to-purple-200 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(139,92,246,0.3)] tracking-tight">
+                                UniFlow
+                            </h1>
+                            <span className="px-2.5 py-0.5 rounded-full bg-white/15 border border-white/25 text-[11px] font-bold text-white tracking-wide">
+                                BRACU Connect+
+                            </span>
                         </div>
-                        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(139,92,246,0.3)] tracking-tight">
-                            UniFlow
-                        </h1>
                     </div>
                 </div>
 
@@ -40,7 +47,7 @@ export default function LandingPage() {
                             </span>
                         </h1>
                         <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-2xl mx-auto">
-                            The ultimate <span className="font-bold text-white">BRAC University Advising Assistant</span>. Track real-time <span className="font-bold">USIS</span> and <span className="font-bold">Connect SLMS</span> seat availability with instant alerts.
+                            Your <span className="font-bold text-white">BRACU Connect+</span> &amp; <span className="font-bold text-white">PrePreReg</span> companion. Track live <span className="font-bold">Connect</span> seat status, build smart routines, find open rooms, and plan with the AI CGPA Mentor.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
